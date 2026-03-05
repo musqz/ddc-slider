@@ -26,7 +26,7 @@ GTK3 system tray applet for XFCE4 that controls external monitor brightness via 
 
 ```bash
 git clone https://github.com/krsnv/xfce4-ddc-brightness-slider.git
-cd ddc-brightness-slider
+cd xfce4-ddc-brightness-slider
 chmod +x install.sh
 ./install.sh
 ```
