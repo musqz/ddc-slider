@@ -70,8 +70,10 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 # Install
 sudo cp ddc-slider.py /usr/local/bin/ddc-slider
-sudo chmod +x /usr/local/bin/ddc-slider
+sudo chmod 755 /usr/local/bin/ddc-slider
 sudo cp ddc-slider.1 /usr/local/share/man/man1/
+sudo cp release.txt /usr/local/share/ddc-slider/release.txt
+sudo chmod 644 /usr/local/share/ddc-slider/release.txt
 ```
 
 Log out and back in for the `i2c` group to take effect.
