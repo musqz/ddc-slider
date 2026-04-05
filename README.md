@@ -1,4 +1,6 @@
-# ddc-slider fork of xfce4-ddc-brighness-slider
+# ddc-slider 
+
+## fork of xfce4-ddc-brighness-slider
 
 GTK3 system tray applet that controls external monitor brightness and contrast via [DDC/CI](https://en.wikipedia.org/wiki/Display_Data_Channel) protocol.
 
