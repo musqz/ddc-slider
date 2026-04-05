@@ -2,7 +2,7 @@
 
 _12 languages covering._
 
-## fork of xfce4-ddc-brightness-slider
+## [fork of xfce4-ddc-brightness-slider](https://github.com/krsnv/xfce4-ddc-brightness-slider)
 
 Disclaimer: I changed the name to `ddc-slider` because the script uses `ddcutil` backend instead of `ddccontrol`.
 
