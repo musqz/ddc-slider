@@ -154,7 +154,11 @@ Config file: `~/.config/ddc-slider/config.json`
       "contrast": 40,
       "color_temp": 5500
     }
-  ]
+  ],
+  "monitor_names": {
+    "3": "Philips",
+    "9": "Dell right"
+  }
 }
 ```
 
