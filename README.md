@@ -277,8 +277,6 @@ rm -rf ~/.config/ddc-slider
 
 ## Languages
 
-    Add i18n support with 12 languages
-
     Translated UI strings (brightness, contrast, tooltips, menus):
     - English (en)
     - Dutch (nl)
@@ -293,7 +291,7 @@ rm -rf ~/.config/ddc-slider
     - Chinese Simplified (zh_CN)
     - Japanese (jp)
 
-    Auto-detects from LC_MESSAGES/LANG, falls back to English.
+    falls back to English.
 
 ## Credits
 
