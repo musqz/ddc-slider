@@ -275,6 +275,8 @@ ddc-slider --icon dark
 rm -rf ~/.config/ddc-slider
 ```
 
+## Languages
+
     Add i18n support with 12 languages
 
     Translated UI strings (brightness, contrast, tooltips, menus):
