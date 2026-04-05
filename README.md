@@ -247,7 +247,7 @@ rm -rf ~/.config/ddc-slider
     - Russian (ru)
     - Turkish (tr)
     - Chinese Simplified (zh_CN)
-    - Japanese (ja)
+    - Japanese (jp)
 
     Auto-detects from LC_MESSAGES/LANG, falls back to English.
 
