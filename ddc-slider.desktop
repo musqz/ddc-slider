@@ -1,10 +1,10 @@
 [Desktop Entry]
+Version=1.0
 Type=Application
-Name=DDC Slider
+Name=DDC Brightness & Contrast
 Comment=Control monitor brightness and contrast via DDC/CI
-Exec=/usr/local/bin/ddc-slider
 Icon=display-brightness-symbolic
-Categories=Settings;HardwareSettings;
-Keywords=brightness;contrast;monitor;ddc;display;ddcutil;
-StartupNotify=false
+Exec=/home/vogel/bin/ddc-slider-launch
 Terminal=false
+Categories=Utility;
+Keywords=brightness;contrast;monitor;ddc;

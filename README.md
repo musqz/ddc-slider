@@ -17,7 +17,8 @@ Works with any desktop environment or window manager that has a system tray (tin
 - **Per-monitor control** — individual brightness and contrast sliders for each DDC-capable monitor, plus a master slider for all at once
 - **Proper monitor names** — shows model names (e.g. "Dell P2414H") from EDID, not generic "VESA monitor"
 - **Instant startup** — state cache remembers monitors and last-used values; window appears immediately, hardware refresh runs in background
-- **Tray icon** — left-click opens popup, scroll wheel adjusts brightness, right-click for presets and redshift toggle
+- **Tray icon** — left-click opens popup, scroll wheel adjusts brightness, right-click for presets, refresh, redshift toggle
+- **Refresh monitors** — re-detect monitor hardware and clear state cache from right-click menu
 - **Standalone mode** — floating window as an alternative to the tray (`--standalone`)
 - **Color temperature** — preset buttons (3000K–6500K) via redshift
 - **Configurable presets** — define brightness/contrast/color_temp combos in a JSON config
@@ -140,7 +141,7 @@ Config file: `~/.config/ddc-slider/config.json`
 
 ```json
 {
-  "scroll_step": 1,
+  "scroll_step": 2,
   "presets": [
     {
       "name": "Movie",
@@ -172,7 +173,43 @@ A default config is created on first run.
 | `~/.config/ddc-slider/state.json` | Cached monitor state (auto-managed) |
 | `~/.config/ddc-slider/icons/` | SVG tray icons (auto-generated, replaceable) |
 
-## Autostart
+## Launchers & Application Menus (To solve env)
+
+To use ddc-slider with gmrun, rofi, or desktop application menus, first create the wrapper script:
+
+```bash
+sudo tee /usr/local/bin/ddc-slider-launch > /dev/null << 'EOF'
+#!/bin/bash
+ddc-slider > /tmp/ddc-slider.log 2>&1 &
+exit 0
+EOF
+sudo chmod +x /usr/local/bin/ddc-slider-launch
+```
+
+Then create `~/.local/share/applications/ddc-slider.desktop`:
+
+```ini
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DDC Brightness & Contrast
+Comment=Control monitor brightness and contrast via DDC/CI
+Icon=display-brightness-symbolic
+Exec=ddc-slider-launch
+Terminal=false
+Categories=Utility;Settings;
+Keywords=brightness;contrast;monitor;ddc;
+```
+
+Now you can launch it from:
+- **gmrun** (Alt+F2): Type "DDC" and press Enter
+- **rofi**: Alt+F2, search "DDC Brightness"
+- **Application menu**: Look for "DDC Brightness & Contrast"
+- **Command line**: `ddc-slider` or `ddc-slider-launch`
+
+The wrapper detaches cleanly and logs to `/tmp/ddc-slider.log`.
+
+## Autostart (default)
 
 To start ddc-slider on login, create `~/.config/autostart/ddc-slider.desktop`:
 

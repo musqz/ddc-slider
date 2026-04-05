@@ -43,6 +43,7 @@ import sys
 import signal
 import threading
 import time
+import shutil
 
 APP_NAME = "ddc-slider"
 APP_VERSION = "unknown"
@@ -78,6 +79,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Brightness ({n} monitors)",
         "resume_redshift":   "▶ Resume Redshift",
         "pause_redshift":    "⏸ Pause Redshift",
+        "refresh_monitors":  "Refresh Monitors",
         "quit":              "Quit",
         "brightness_slider": "☀ Brightness Slider",
         "window_title":      "DDC Brightness & Contrast",
@@ -91,6 +93,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Helderheid ({n} beeldschermen)",
         "resume_redshift":   "▶ Redshift hervatten",
         "pause_redshift":    "⏸ Redshift pauzeren",
+        "refresh_monitors":  "Beeldschermen vernieuwen",
         "quit":              "Afsluiten",
         "brightness_slider": "☀ Helderheidsregelaar",
         "window_title":      "DDC Helderheid & Contrast",
@@ -104,6 +107,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Jasność ({n} monitorów)",
         "resume_redshift":   "▶ Wznów Redshift",
         "pause_redshift":    "⏸ Wstrzymaj Redshift",
+        "refresh_monitors":  "Odśwież Monitory",
         "quit":              "Zakończ",
         "brightness_slider": "☀ Suwak Jasności",
         "window_title":      "DDC Jasność i Kontrast",
@@ -117,6 +121,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Helligkeit ({n} Bildschirme)",
         "resume_redshift":   "▶ Redshift fortsetzen",
         "pause_redshift":    "⏸ Redshift pausieren",
+        "refresh_monitors":  "Bildschirme aktualisieren",
         "quit":              "Beenden",
         "brightness_slider": "☀ Helligkeitsregler",
         "window_title":      "DDC Helligkeit & Kontrast",
@@ -130,6 +135,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Brillo ({n} monitores)",
         "resume_redshift":   "▶ Reanudar Redshift",
         "pause_redshift":    "⏸ Pausar Redshift",
+        "refresh_monitors":  "Actualizar Monitores",
         "quit":              "Salir",
         "brightness_slider": "☀ Control de Brillo",
         "window_title":      "DDC Brillo y Contraste",
@@ -143,6 +149,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Luminosité ({n} écrans)",
         "resume_redshift":   "▶ Reprendre Redshift",
         "pause_redshift":    "⏸ Suspendre Redshift",
+        "refresh_monitors":  "Actualiser Moniteurs",
         "quit":              "Quitter",
         "brightness_slider": "☀ Curseur de Luminosité",
         "window_title":      "DDC Luminosité & Contraste",
@@ -156,6 +163,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Brilho ({n} monitores)",
         "resume_redshift":   "▶ Retomar Redshift",
         "pause_redshift":    "⏸ Pausar Redshift",
+        "refresh_monitors":  "Atualizar Monitores",
         "quit":              "Sair",
         "brightness_slider": "☀ Controle de Brilho",
         "window_title":      "DDC Brilho e Contraste",
@@ -169,6 +177,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Luminosità ({n} monitor)",
         "resume_redshift":   "▶ Riprendi Redshift",
         "pause_redshift":    "⏸ Sospendi Redshift",
+        "refresh_monitors":  "Aggiorna Monitor",
         "quit":              "Esci",
         "brightness_slider": "☀ Cursore Luminosità",
         "window_title":      "DDC Luminosità e Contrasto",
@@ -182,6 +191,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Яркость ({n} мониторов)",
         "resume_redshift":   "▶ Возобновить Redshift",
         "pause_redshift":    "⏸ Приостановить Redshift",
+        "refresh_monitors":  "Обновить Мониторы",
         "quit":              "Выход",
         "brightness_slider": "☀ Регулятор яркости",
         "window_title":      "DDC Яркость и Контраст",
@@ -195,6 +205,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC Parlaklık ({n} ekran)",
         "resume_redshift":   "▶ Redshift Devam",
         "pause_redshift":    "⏸ Redshift Duraklat",
+        "refresh_monitors":  "Ekranları Yenile",
         "quit":              "Çıkış",
         "brightness_slider": "☀ Parlaklık Kaydırıcı",
         "window_title":      "DDC Parlaklık ve Kontrast",
@@ -208,6 +219,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC 亮度 ({n} 台显示器)",
         "resume_redshift":   "▶ 恢复 Redshift",
         "pause_redshift":    "⏸ 暂停 Redshift",
+        "refresh_monitors":  "刷新显示器",
         "quit":              "退出",
         "brightness_slider": "☀ 亮度滑块",
         "window_title":      "DDC 亮度和对比度",
@@ -221,6 +233,7 @@ _TRANSLATIONS = {
         "tooltip_multi":     "DDC 明るさ ({n} 台)",
         "resume_redshift":   "▶ Redshift 再開",
         "pause_redshift":    "⏸ Redshift 一時停止",
+        "refresh_monitors":  "モニターを更新",
         "quit":              "終了",
         "brightness_slider": "☀ 明るさスライダー",
         "window_title":      "DDC 明るさ・コントラスト",
@@ -255,7 +268,7 @@ def _(key: str, **kwargs) -> str:
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_CONFIG_DIR, "config.json")
 DEFAULT_STATE_PATH = os.path.join(DEFAULT_CONFIG_DIR, "state.json")
 DEFAULT_CONFIG = {
-    "scroll_step": 1,
+    "scroll_step": 2,
     "presets": [
         {"name": "Movie", "brightness": 30, "contrast": 60, "color_temp": 3500},
         {"name": "Reading", "brightness": 80, "contrast": 40, "color_temp": 5500},
@@ -266,7 +279,7 @@ VCP_CONTRAST = 12     # VCP feature code 0x12
 DEFAULT_MIN = 0
 DEFAULT_MAX = 100
 DEFAULT_STEP = 5
-DEFAULT_SCROLL_STEP = 1
+DEFAULT_SCROLL_STEP = 2
 STATE_MAX_AGE = 86400  # 24 hours
 ICON_NAME_FALLBACK = "display-brightness-symbolic"
 
@@ -965,12 +978,16 @@ class TrayApp:
 
     def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
                  scroll_step: int = DEFAULT_SCROLL_STEP, presets: list | None = None,
-                 cached_state: list[dict] | None = None, icon_style: str | None = None):
+                 cached_state: list[dict] | None = None, icon_style: str | None = None,
+                 original_cmd: str | None = None):
+        print(f"[{APP_NAME}] TrayApp init: sys.argv={sys.argv}", file=sys.stderr)
+        print(f"[{APP_NAME}] TrayApp init: original_cmd={original_cmd}", file=sys.stderr)
         self.monitors = monitors
         self.min_val = min_val
         self.max_val = max_val
         self.scroll_step = scroll_step
         self.presets = presets or []
+        self.original_cmd = original_cmd or sys.argv[0]
         self.popup = BrightnessPopup(monitors, min_val, max_val, step,
                                      on_color_temp=self._on_color_temp,
                                      on_value_changed=self._save_current_state)
@@ -1088,6 +1105,9 @@ class TrayApp:
 
     def _build_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
+        menu_items = []
+        
+        # Presets section
         if self.presets:
             for i, preset in enumerate(self.presets):
                 label = f"{preset['name']}  ☀{preset['brightness']}% ◑{preset['contrast']}%"
@@ -1096,16 +1116,38 @@ class TrayApp:
                 item = Gtk.MenuItem(label=label)
                 item.connect("activate", self._on_apply_preset, i)
                 menu.append(item)
+                menu_items.append(f"preset: {preset['name']}")
             menu.append(Gtk.SeparatorMenuItem())
+            menu_items.append("sep")
+        
+        # Redshift section
         if self._is_redshift_running():
             label = _("resume_redshift") if self._redshift_paused else _("pause_redshift")
             item_rs = Gtk.MenuItem(label=label)
             item_rs.connect("activate", self._on_toggle_redshift)
             menu.append(item_rs)
+            menu_items.append("redshift")
             menu.append(Gtk.SeparatorMenuItem())
-        item_quit = Gtk.MenuItem(label=_("quit"))
+            menu_items.append("sep")
+        
+        # Refresh Monitors (always present)
+        refresh_label = _("refresh_monitors")
+        print(f"[{APP_NAME}] Refresh label: '{refresh_label}'", file=sys.stderr)
+        item_refresh = Gtk.MenuItem(label=refresh_label)
+        item_refresh.connect("activate", self._on_refresh_monitors)
+        menu.append(item_refresh)
+        menu_items.append("refresh")
+        menu.append(Gtk.SeparatorMenuItem())
+        menu_items.append("sep")
+        
+        # Quit
+        quit_label = _("quit")
+        item_quit = Gtk.MenuItem(label=quit_label)
         item_quit.connect("activate", lambda w: Gtk.main_quit())
         menu.append(item_quit)
+        menu_items.append("quit")
+        
+        print(f"[{APP_NAME}] Menu built: {menu_items}", file=sys.stderr)
         menu.show_all()
         return menu
 
@@ -1127,6 +1169,91 @@ class TrayApp:
             self._redshift_paused = not self._redshift_paused
         except Exception:
             pass
+
+    def _on_refresh_monitors(self, widget):
+        """Remove state cache, hide tray icon, exit gracefully, and restart ddc-slider."""
+        print(f"[{APP_NAME}] Refreshing monitors (full restart)...", file=sys.stderr)
+        def _do_refresh():
+            try:
+                # Remove state cache
+                if os.path.exists(DEFAULT_STATE_PATH):
+                    os.remove(DEFAULT_STATE_PATH)
+                    print(f"[{APP_NAME}] Removed state cache: {DEFAULT_STATE_PATH}", file=sys.stderr)
+            except Exception as e:
+                print(f"[{APP_NAME}] Error removing state: {e}", file=sys.stderr)
+            
+            try:
+                # Hide tray icon objects
+                if self.status_icon:
+                    self.status_icon.set_visible(False)
+                    print(f"[{APP_NAME}] Hid status icon", file=sys.stderr)
+                if self.indicator:
+                    self.indicator.set_status(0)  # PASSIVE status to hide it
+                    print(f"[{APP_NAME}] Hid indicator", file=sys.stderr)
+            except Exception as e:
+                print(f"[{APP_NAME}] Error hiding tray icon: {e}", file=sys.stderr)
+            
+            time.sleep(0.2)
+            
+            try:
+                # Schedule GTK main quit on the GTK main thread
+                GLib.idle_add(Gtk.main_quit)
+                print(f"[{APP_NAME}] Scheduled GTK exit", file=sys.stderr)
+            except Exception as e:
+                print(f"[{APP_NAME}] Error scheduling quit: {e}", file=sys.stderr)
+            
+            time.sleep(0.5)
+            
+            try:
+                # Kill any other ddc-slider instances (this one will exit via Gtk.main_quit)
+                subprocess.run(["killall", "-9", "ddc-slider"], capture_output=True)
+                print(f"[{APP_NAME}] Killed other instances", file=sys.stderr)
+            except Exception as e:
+                print(f"[{APP_NAME}] Error killing instances: {e}", file=sys.stderr)
+            
+            time.sleep(0.5)
+            
+            # Find the best command to restart with
+            restart_cmd = None
+            original = self.original_cmd
+            print(f"[{APP_NAME}] Original cmd: {original}", file=sys.stderr)
+            
+            # Try 1: Use original_cmd if it's absolute path
+            if original.startswith('/') and os.path.exists(original):
+                restart_cmd = original
+                print(f"[{APP_NAME}] Using absolute path: {restart_cmd}", file=sys.stderr)
+            
+            # Try 2: Search PATH for the command
+            if not restart_cmd:
+                import shutil
+                found = shutil.which('ddc-slider')
+                if found:
+                    restart_cmd = found
+                    print(f"[{APP_NAME}] Found in PATH: {restart_cmd}", file=sys.stderr)
+            
+            # Try 3: Use wrapper if available
+            if not restart_cmd:
+                import shutil
+                found = shutil.which('ddc-slider-launch')
+                if found:
+                    restart_cmd = found
+                    print(f"[{APP_NAME}] Found wrapper: {restart_cmd}", file=sys.stderr)
+            
+            # Try 4: Fall back to shell command
+            if not restart_cmd:
+                restart_cmd = 'ddc-slider'
+                print(f"[{APP_NAME}] Using fallback: {restart_cmd}", file=sys.stderr)
+            
+            try:
+                # Restart with shell=True to allow PATH searching
+                print(f"[{APP_NAME}] Restarting: {restart_cmd}", file=sys.stderr)
+                subprocess.Popen(f"{restart_cmd} > /tmp/ddc-slider-refresh.log 2>&1 &", 
+                                shell=True, env=os.environ.copy())
+                print(f"[{APP_NAME}] Restarted (fresh tray icon)", file=sys.stderr)
+            except Exception as e:
+                print(f"[{APP_NAME}] Error restarting: {e}", file=sys.stderr)
+        
+        threading.Thread(target=_do_refresh, daemon=True).start()
 
     def _setup_appindicator(self, AppIndicatorLib, tooltip: str):
         icon_dir = os.path.dirname(self._icon_path)
@@ -1379,7 +1506,7 @@ State:  {DEFAULT_STATE_PATH}
                         help=f"Maximum brightness value (default: {DEFAULT_MAX})")
     parser.add_argument("--step", type=int, default=DEFAULT_STEP,
                         help=f"Slider step size (default: {DEFAULT_STEP})")
-    parser.add_argument("--scroll-step", type=int, default=DEFAULT_SCROLL_STEP,
+    parser.add_argument("--scroll-step", type=int, default=None,
                         help=f"Scroll wheel step size (default: {DEFAULT_SCROLL_STEP})")
     parser.add_argument("--standalone", action="store_true",
                         help="Show as a floating window instead of tray icon")
@@ -1470,7 +1597,7 @@ State:  {DEFAULT_STATE_PATH}
         if os.path.exists(config_path):
             config = load_config(config_path)
 
-    scroll_step = config.get("scroll_step", args.scroll_step)
+    scroll_step = args.scroll_step if args.scroll_step is not None else config.get("scroll_step", DEFAULT_SCROLL_STEP)
     presets = config.get("presets", [])
 
     if args.standalone:
@@ -1481,7 +1608,8 @@ State:  {DEFAULT_STATE_PATH}
         icon_style = None if args.icon == "auto" else args.icon
         app = TrayApp(monitors, args.min, args.max, args.step,
                       scroll_step=scroll_step, presets=presets,
-                      cached_state=cached_state, icon_style=icon_style)
+                      cached_state=cached_state, icon_style=icon_style,
+                      original_cmd=sys.argv[0])
 
     Gtk.main()
 
