@@ -108,9 +108,6 @@ sudo chmod 644 /usr/local/share/ddc-slider/release.txt
 ```bash
 # Check that ddcutil sees your monitors
 ddcutil detect
-
-# Test brightness control
-ddcutil setvcp 10 50 --bus 3
 ```
 
 ## Usage
