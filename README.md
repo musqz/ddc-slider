@@ -239,3 +239,5 @@ Fork/rewrite by Musduz, 2026-04-05 — switched to ddcutil backend, added per-mo
 ## License
 
 MIT
+
+![window](images/windowJP.jpg)
