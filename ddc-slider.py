@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 
 """
-DDC Brightness Slider for XFCE4
+ddc-slider — DDC/CI Brightness & Contrast Slider
 
-GTK3 tray icon with a brightness slider that controls monitor brightness
-via ddccontrol (DDC/CI protocol over I2C).
+GTK3 tray icon / standalone window to control monitor brightness and contrast
+via ddcutil (DDC/CI protocol over I2C).
 
-Configuration:
-  Edit the constants below or use command-line arguments.
+Features:
+  - Auto-detect all DDC-capable monitors with proper model names
+  - State cache for instant startup (background hardware refresh)
+  - Per-monitor and master brightness/contrast sliders
+  - Tray icon with scroll-wheel support
+  - Color temperature presets via redshift
+  - Configurable presets via JSON config
 
 Requirements:
-  - ddccontrol
-  - redshift
+  - ddcutil
+  - redshift (optional, for color temperature)
   - python3-gi, gir1.2-gtk-3.0, gir1.2-ayatanaappindicator3-0.1
   - User must be in the 'i2c' group: sudo usermod -aG i2c $USER
 
-Author: Vladimir Krasnov
+Original: Vladimir Krasnov (MIT License)
+Fork/rewrite: Musduz, 2025
 License: MIT
 """
 
@@ -36,9 +42,26 @@ import re
 import sys
 import signal
 import threading
+import time
 
-DEFAULT_CONFIG_DIR = os.path.expanduser("~/.config/ddc-brightness")
+APP_NAME = "ddc-slider"
+APP_VERSION = "unknown"
+
+# Read version from release.txt (next to script, or /usr/local/share/ddc-slider/)
+for _vpath in [
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "release.txt"),
+    "/usr/local/share/ddc-slider/release.txt",
+]:
+    try:
+        with open(_vpath) as _f:
+            APP_VERSION = _f.read().strip()
+            break
+    except FileNotFoundError:
+        continue
+
+DEFAULT_CONFIG_DIR = os.path.expanduser(f"~/.config/{APP_NAME}")
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_CONFIG_DIR, "config.json")
+DEFAULT_STATE_PATH = os.path.join(DEFAULT_CONFIG_DIR, "state.json")
 DEFAULT_CONFIG = {
     "scroll_step": 1,
     "presets": [
@@ -46,88 +69,305 @@ DEFAULT_CONFIG = {
         {"name": "Reading", "brightness": 80, "contrast": 40, "color_temp": 5500},
     ],
 }
-DEFAULT_I2C_DEV = "auto"
-DEFAULT_DDC_REGISTER = "0x10"           # 0x10 = Brightness in DDC/CI spec
-DEFAULT_DDC_CONTRAST_REGISTER = "0x12"  # 0x12 = Contrast in DDC/CI spec
-DEFAULT_MIN_BRIGHTNESS = 0
-DEFAULT_MAX_BRIGHTNESS = 100
+VCP_BRIGHTNESS = 10   # VCP feature code 0x10
+VCP_CONTRAST = 12     # VCP feature code 0x12
+DEFAULT_MIN = 0
+DEFAULT_MAX = 100
 DEFAULT_STEP = 5
 DEFAULT_SCROLL_STEP = 1
-ICON_NAME = "display-brightness-symbolic"
+STATE_MAX_AGE = 86400  # 24 hours
+ICON_NAME_FALLBACK = "display-brightness-symbolic"
 
+# Embedded SVG brightness icons (sun symbol) for light and dark panels
+_ICON_SVG_DARK = '''<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="4.5" fill="#222" fill-opacity="0.9"/>
+  <g stroke="#222" stroke-width="2" stroke-linecap="round" opacity="0.9">
+    <line x1="12" y1="1.5" x2="12" y2="4"/>
+    <line x1="12" y1="20" x2="12" y2="22.5"/>
+    <line x1="1.5" y1="12" x2="4" y2="12"/>
+    <line x1="20" y1="12" x2="22.5" y2="12"/>
+    <line x1="4.6" y1="4.6" x2="6.4" y2="6.4"/>
+    <line x1="17.6" y1="17.6" x2="19.4" y2="19.4"/>
+    <line x1="4.6" y1="19.4" x2="6.4" y2="17.6"/>
+    <line x1="17.6" y1="6.4" x2="19.4" y2="4.6"/>
+  </g>
+</svg>'''
+
+_ICON_SVG_LIGHT = '''<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="4.5" fill="#eee" fill-opacity="0.95"/>
+  <g stroke="#eee" stroke-width="2" stroke-linecap="round" opacity="0.95">
+    <line x1="12" y1="1.5" x2="12" y2="4"/>
+    <line x1="12" y1="20" x2="12" y2="22.5"/>
+    <line x1="1.5" y1="12" x2="4" y2="12"/>
+    <line x1="20" y1="12" x2="22.5" y2="12"/>
+    <line x1="4.6" y1="4.6" x2="6.4" y2="6.4"/>
+    <line x1="17.6" y1="17.6" x2="19.4" y2="19.4"/>
+    <line x1="4.6" y1="19.4" x2="6.4" y2="17.6"/>
+    <line x1="17.6" y1="6.4" x2="19.4" y2="4.6"/>
+  </g>
+</svg>'''
+
+
+def _get_icon_path(icon_style: str | None = None) -> str:
+    """Get the path to the appropriate tray icon.
+    icon_style: 'light', 'dark', or None for auto-detect."""
+    icon_dir = os.path.join(DEFAULT_CONFIG_DIR, "icons")
+    os.makedirs(icon_dir, exist_ok=True)
+
+    dark_path = os.path.join(icon_dir, "brightness-dark.svg")
+    light_path = os.path.join(icon_dir, "brightness-light.svg")
+
+    # Write icons if missing
+    if not os.path.exists(dark_path):
+        with open(dark_path, "w") as f:
+            f.write(_ICON_SVG_DARK)
+    if not os.path.exists(light_path):
+        with open(light_path, "w") as f:
+            f.write(_ICON_SVG_LIGHT)
+
+    if icon_style == "dark":
+        return dark_path
+    if icon_style == "light":
+        return light_path
+
+    # Auto-detect: check GTK theme background luminance
+    try:
+        win = Gtk.Window()
+        ctx = win.get_style_context()
+        bg = ctx.get_background_color(Gtk.StateFlags.NORMAL)
+        luminance = 0.299 * bg.red + 0.587 * bg.green + 0.114 * bg.blue
+        win.destroy()
+        # Dark theme → use light icon, light theme → use dark icon
+        choice = light_path if luminance < 0.5 else dark_path
+        icon = "light" if luminance < 0.5 else "dark"
+        print(f"[{APP_NAME}] Theme luminance={luminance:.2f}, using {icon} icon",
+              file=sys.stderr)
+        return choice
+    except Exception:
+        return light_path
+
+
+# ---------------------------------------------------------------------------
+#  Data model
+# ---------------------------------------------------------------------------
 
 @dataclasses.dataclass
 class MonitorInfo:
-    device: str           # "/dev/i2c-3"
-    name: str             # "Dell U2515H"
+    bus: int               # I2C bus number (e.g. 3)
+    device: str            # "/dev/i2c-3"
+    name: str              # "Dell U2515H"
     brightness: 'DDCController'
     contrast: 'DDCController'
 
 
-def detect_i2c_devices() -> list[tuple[str, str]]:
-    """Probe for DDC-capable monitors via ddccontrol -p.
-    Returns list of (device_path, monitor_name) tuples."""
-    devices = []
+# ---------------------------------------------------------------------------
+#  State cache — instant startup
+# ---------------------------------------------------------------------------
+
+def load_state() -> list[dict] | None:
+    """Load cached monitor state. Returns None if missing or stale (>24h)."""
+    try:
+        with open(DEFAULT_STATE_PATH) as f:
+            data = json.load(f)
+        age = time.time() - data.get("timestamp", 0)
+        if age > STATE_MAX_AGE:
+            print(f"[{APP_NAME}] State cache too old ({age:.0f}s), will re-probe", file=sys.stderr)
+            return None
+        monitors = data.get("monitors", [])
+        if not monitors:
+            return None
+        print(f"[{APP_NAME}] Loaded cached state ({len(monitors)} monitors, {age:.0f}s old)",
+              file=sys.stderr)
+        return monitors
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return None
+
+
+def save_state(monitors: list[MonitorInfo], values: dict[int, dict]):
+    """Save monitor list and current values to state cache.
+    values = {bus: {"brightness": int, "contrast": int}}
+    """
+    data = {
+        "timestamp": time.time(),
+        "monitors": [
+            {
+                "bus": m.bus,
+                "name": m.name,
+                "brightness": values.get(m.bus, {}).get("brightness", 50),
+                "contrast": values.get(m.bus, {}).get("contrast", 50),
+            }
+            for m in monitors
+        ],
+    }
+    try:
+        os.makedirs(DEFAULT_CONFIG_DIR, exist_ok=True)
+        with open(DEFAULT_STATE_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+    except OSError as e:
+        print(f"[{APP_NAME}] Error saving state: {e}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+#  Monitor detection via ddcutil
+# ---------------------------------------------------------------------------
+
+def detect_monitors() -> list[tuple[int, str]]:
+    """Probe for DDC-capable monitors via ddcutil detect.
+    Returns list of (bus_number, model_name) tuples.
+    Skips 'Invalid display' entries (no DDC/CI support)."""
+    monitors = []
     try:
         result = subprocess.run(
-            ["ddccontrol", "-p"],
-            capture_output=True, text=True, timeout=10
+            ["ddcutil", "detect"],
+            capture_output=True, text=True, timeout=15
         )
-        lines = result.stdout.splitlines()
-        for i, line in enumerate(lines):
-            m = re.search(r'Device:\s*dev:(/dev/i2c-\d+)', line)
+        bus = None
+        name = ""
+        valid = False
+        for line in result.stdout.splitlines():
+            # Valid display block
+            if re.match(r'^Display\s+\d+', line):
+                if bus is not None and valid:
+                    monitors.append((bus, name))
+                bus = None
+                name = ""
+                valid = True
+            # Invalid display block — skip
+            elif re.match(r'^Invalid display', line):
+                if bus is not None and valid:
+                    monitors.append((bus, name))
+                bus = None
+                name = ""
+                valid = False
+            # I2C bus line
+            m = re.search(r'I2C bus:\s*/dev/i2c-(\d+)', line)
             if m:
-                device_path = m.group(1)
-                if i + 1 < len(lines) and "DDC/CI supported: Yes" in lines[i + 1]:
-                    monitor_name = ""
-                    if i + 2 < len(lines):
-                        nm = re.search(r'Monitor Name:\s*(.+)', lines[i + 2])
-                        if nm:
-                            monitor_name = nm.group(1).strip()
-                    devices.append((device_path, monitor_name))
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-        print(f"[ddc-brightness] Error probing for monitors: {e}", file=sys.stderr)
-    return devices
+                bus = int(m.group(1))
+            # Model name from EDID
+            m = re.search(r'Model:\s*(.+)', line)
+            if m:
+                name = m.group(1).strip()
+        # Don't forget the last display
+        if bus is not None and valid:
+            monitors.append((bus, name))
+    except FileNotFoundError:
+        print(f"[{APP_NAME}] ERROR: ddcutil not found. Install it: pacman -S ddcutil",
+              file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"[{APP_NAME}] ERROR: ddcutil detect timed out", file=sys.stderr)
+    except Exception as e:
+        print(f"[{APP_NAME}] Error probing monitors: {e}", file=sys.stderr)
+    return monitors
 
+
+def build_monitors(detected: list[tuple[int, str]], vcp_brightness: int,
+                   vcp_contrast: int) -> list[MonitorInfo]:
+    """Build MonitorInfo list from detected (bus, name) tuples."""
+    monitors = []
+    for bus, name in detected:
+        device = f"/dev/i2c-{bus}"
+        label = f" ({name})" if name else ""
+        print(f"[{APP_NAME}] Found: bus {bus} {device}{label}", file=sys.stderr)
+        monitors.append(MonitorInfo(
+            bus=bus, device=device, name=name,
+            brightness=DDCController(bus, vcp_brightness),
+            contrast=DDCController(bus, vcp_contrast),
+        ))
+    return monitors
+
+
+def build_monitors_from_cache(cached: list[dict], vcp_brightness: int,
+                              vcp_contrast: int) -> list[MonitorInfo]:
+    """Build MonitorInfo list from cached state data."""
+    monitors = []
+    for entry in cached:
+        bus = entry["bus"]
+        name = entry.get("name", "")
+        monitors.append(MonitorInfo(
+            bus=bus, device=f"/dev/i2c-{bus}", name=name,
+            brightness=DDCController(bus, vcp_brightness),
+            contrast=DDCController(bus, vcp_contrast),
+        ))
+    return monitors
+
+
+# ---------------------------------------------------------------------------
+#  DDC controller via ddcutil
+# ---------------------------------------------------------------------------
 
 class DDCController:
+    """Read/write a single VCP feature on a specific I2C bus via ddcutil.
+    Uses per-bus locking to prevent I2C contention."""
 
-    def __init__(self, i2c_dev: str, register: str):
-        self.device = f"dev:{i2c_dev}"
-        self.register = register
+    _bus_locks: dict[int, threading.Lock] = {}
+    _locks_lock = threading.Lock()
 
-    def get_brightness(self) -> int | None:
-        try:
-            result = subprocess.run(
-                ["ddccontrol", "-r", self.register, self.device],
-                capture_output=True, text=True, timeout=5
-            )
-            # Parse output like: "Control 0x10: +/70/100 [Brightness]"
-            # or: " > current value = 70"
-            for line in result.stdout.splitlines():
-                m = re.search(r'\+/(\d+)/(\d+)', line)
+    def __init__(self, bus: int, feature: int):
+        self.bus = bus
+        self.feature = feature   # 10 = brightness, 12 = contrast
+        # Create a shared lock per bus (brightness + contrast on same bus share it)
+        with DDCController._locks_lock:
+            if bus not in DDCController._bus_locks:
+                DDCController._bus_locks[bus] = threading.Lock()
+        self._lock = DDCController._bus_locks[bus]
+
+    def get_value(self) -> int | None:
+        """Read current VCP value from hardware."""
+        with self._lock:
+            try:
+                result = subprocess.run(
+                    ["ddcutil", "getvcp", str(self.feature),
+                     "--bus", str(self.bus), "--terse"],
+                    capture_output=True, text=True, timeout=10
+                )
+                # Terse output: "VCP 10 C 70 100" (feature, type, current, max)
+                m = re.search(r'VCP\s+\w+\s+\w+\s+(\d+)\s+(\d+)', result.stdout)
                 if m:
                     return int(m.group(1))
-                m = re.search(r'current\s+value\s*=\s*(\d+)', line)
+                # Fallback: verbose output
+                m = re.search(r'current value\s*=\s*(\d+)', result.stdout)
                 if m:
                     return int(m.group(1))
-            return None
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-            print(f"[ddc-brightness] Error reading brightness: {e}", file=sys.stderr)
-            return None
+                return None
+            except subprocess.TimeoutExpired:
+                print(f"[{APP_NAME}] Timeout reading VCP {self.feature} on bus {self.bus}",
+                      file=sys.stderr)
+                return None
+            except Exception as e:
+                print(f"[{APP_NAME}] Error reading VCP {self.feature}: {e}", file=sys.stderr)
+                return None
 
-    def set_brightness(self, value: int) -> bool:
+    def set_value(self, value: int) -> bool:
+        """Write VCP value to hardware."""
         value = max(0, min(100, int(value)))
-        try:
-            result = subprocess.run(
-                ["ddccontrol", "-r", self.register, "-w", str(value), self.device],
-                capture_output=True, text=True, timeout=5
-            )
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-            print(f"[ddc-brightness] Error setting brightness to {value}: {e}", file=sys.stderr)
-            return False
+        with self._lock:
+            try:
+                cmd = ["ddcutil", "setvcp", str(self.feature), str(value),
+                       "--bus", str(self.bus), "--noverify"]
+                print(f"[{APP_NAME}] Running: {' '.join(cmd)}", file=sys.stderr)
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=10
+                )
+                if result.returncode != 0:
+                    print(f"[{APP_NAME}] setvcp failed (rc={result.returncode}): "
+                          f"{result.stderr.strip()}", file=sys.stderr)
+                else:
+                    print(f"[{APP_NAME}] setvcp OK: VCP {self.feature}={value} bus {self.bus}",
+                          file=sys.stderr)
+                return result.returncode == 0
+            except subprocess.TimeoutExpired:
+                print(f"[{APP_NAME}] Timeout setting VCP {self.feature} to {value} on bus {self.bus}",
+                      file=sys.stderr)
+                return False
+            except Exception as e:
+                print(f"[{APP_NAME}] Error setting VCP {self.feature} to {value}: {e}",
+                      file=sys.stderr)
+                return False
 
+
+# ---------------------------------------------------------------------------
+#  Slider group widget (brightness + contrast for one monitor)
+# ---------------------------------------------------------------------------
 
 class _SliderGroup:
     """A pair of brightness/contrast sliders for one monitor (or master)."""
@@ -142,7 +382,7 @@ class _SliderGroup:
         self._on_brightness = on_brightness
         self._on_contrast = on_contrast
 
-        # Brightness
+        # --- Brightness ---
         title = Gtk.Label()
         title.set_markup("<b>☀ Brightness</b>")
         vbox.pack_start(title, False, False, 0)
@@ -176,7 +416,7 @@ class _SliderGroup:
                 btn.connect("clicked", self._on_preset_clicked, preset)
                 btn_box.pack_start(btn, True, True, 0)
 
-        # Contrast
+        # --- Contrast ---
         vbox.pack_start(Gtk.Separator(), False, False, 0)
         contrast_title = Gtk.Label()
         contrast_title.set_markup("<b>◑ Contrast</b>")
@@ -202,14 +442,15 @@ class _SliderGroup:
         contrast_hbox.pack_start(self.contrast_label, False, False, 0)
 
     def refresh(self):
+        """Read actual hardware values (blocking — use from background thread)."""
         if self.monitor is None:
             return
-        val = self.monitor.brightness.get_brightness()
+        val = self.monitor.brightness.get_value()
         if val is not None:
-            self.set_brightness(val)
-        con = self.monitor.contrast.get_brightness()
+            GLib.idle_add(self.set_brightness, val)
+        con = self.monitor.contrast.get_value()
         if con is not None:
-            self.set_contrast(con)
+            GLib.idle_add(self.set_contrast, con)
 
     def set_brightness(self, value):
         self.is_applying_brightness = True
@@ -230,7 +471,7 @@ class _SliderGroup:
         self.brightness_label.set_text(f"{value}%")
         if self._brightness_debounce:
             GLib.source_remove(self._brightness_debounce)
-        self._brightness_debounce = GLib.timeout_add(150, self._apply_brightness, value)
+        self._brightness_debounce = GLib.timeout_add(300, self._apply_brightness, value)
 
     def _apply_brightness(self, value):
         self._brightness_debounce = None
@@ -244,7 +485,7 @@ class _SliderGroup:
         self.contrast_label.set_text(f"{value}%")
         if self._contrast_debounce:
             GLib.source_remove(self._contrast_debounce)
-        self._contrast_debounce = GLib.timeout_add(150, self._apply_contrast, value)
+        self._contrast_debounce = GLib.timeout_add(300, self._apply_contrast, value)
 
     def _apply_contrast(self, value):
         self._contrast_debounce = None
@@ -259,6 +500,10 @@ class _SliderGroup:
         self._on_brightness(self, value)
 
 
+# ---------------------------------------------------------------------------
+#  Brightness popup (for tray icon mode)
+# ---------------------------------------------------------------------------
+
 class BrightnessPopup(Gtk.Window):
 
     COLOR_TEMP_PRESETS = [
@@ -269,11 +514,12 @@ class BrightnessPopup(Gtk.Window):
     ]
 
     def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
-                 on_color_temp=None):
+                 on_color_temp=None, on_value_changed=None):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
 
         self.monitors = monitors
         self._on_color_temp = on_color_temp
+        self._on_value_changed = on_value_changed
         self._visible = False
         self._position = (0, 0)
         self._monitor_groups: list[_SliderGroup] = []
@@ -289,7 +535,6 @@ class BrightnessPopup(Gtk.Window):
         self.set_accept_focus(True)
         self.set_can_focus(True)
         self.set_gravity(Gdk.Gravity.NORTH_WEST)
-
         self.set_position(Gtk.WindowPosition.NONE)
 
         self.connect("focus-out-event", self._on_focus_out)
@@ -315,7 +560,7 @@ class BrightnessPopup(Gtk.Window):
                 on_contrast=self._on_master_contrast,
                 show_presets=True)
 
-        for i, mon in enumerate(monitors):
+        for mon in monitors:
             if multi:
                 vbox.pack_start(Gtk.Separator(), False, False, 4)
                 header = Gtk.Label()
@@ -360,25 +605,40 @@ class BrightnessPopup(Gtk.Window):
             Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
+    def _notify_changed(self):
+        """Notify parent that slider values changed (for state cache save)."""
+        if self._on_value_changed:
+            self._on_value_changed()
+
     def _on_temp_clicked(self, button, temp: int):
         if self._on_color_temp:
             self._on_color_temp(temp)
 
     def _on_monitor_brightness(self, group: _SliderGroup, value: int):
-        group.monitor.brightness.set_brightness(value)
+        threading.Thread(target=group.monitor.brightness.set_value, args=(value,), daemon=True).start()
+        self._notify_changed()
 
     def _on_monitor_contrast(self, group: _SliderGroup, value: int):
-        group.monitor.contrast.set_brightness(value)
+        threading.Thread(target=group.monitor.contrast.set_value, args=(value,), daemon=True).start()
+        self._notify_changed()
 
     def _on_master_brightness(self, group: _SliderGroup, value: int):
+        def _do():
+            for mg in self._monitor_groups:
+                mg.monitor.brightness.set_value(value)
         for mg in self._monitor_groups:
             mg.set_brightness(value)
-            mg.monitor.brightness.set_brightness(value)
+        threading.Thread(target=_do, daemon=True).start()
+        self._notify_changed()
 
     def _on_master_contrast(self, group: _SliderGroup, value: int):
+        def _do():
+            for mg in self._monitor_groups:
+                mg.monitor.contrast.set_value(value)
         for mg in self._monitor_groups:
             mg.set_contrast(value)
-            mg.monitor.contrast.set_brightness(value)
+        threading.Thread(target=_do, daemon=True).start()
+        self._notify_changed()
 
     def _on_realize(self, widget):
         self.get_window().move_resize(
@@ -387,8 +647,43 @@ class BrightnessPopup(Gtk.Window):
         )
 
     def refresh_value(self):
+        """Refresh all sliders from hardware in background thread."""
+        def _do_refresh():
+            results = {}
+            for group in self._monitor_groups:
+                mon = group.monitor
+                b = mon.brightness.get_value()
+                c = mon.contrast.get_value()
+                results[mon.bus] = (b, c)
+            GLib.idle_add(self._apply_hw_results, results)
+
+        threading.Thread(target=_do_refresh, daemon=True).start()
+
+    def _apply_hw_results(self, results: dict):
+        """Apply hardware-read values to sliders (main thread)."""
         for group in self._monitor_groups:
-            group.refresh()
+            vals = results.get(group.monitor.bus)
+            if vals:
+                b, c = vals
+                if b is not None:
+                    group.set_brightness(b)
+                if c is not None:
+                    group.set_contrast(c)
+        if self._master_group and self._monitor_groups:
+            first = self._monitor_groups[0]
+            self._master_group.set_brightness(int(first.brightness_scale.get_value()))
+            self._master_group.set_contrast(int(first.contrast_scale.get_value()))
+        self._notify_changed()
+        return False
+
+    def apply_cached_values(self, cached: list[dict]):
+        """Set slider positions from cached state (no hardware read)."""
+        cache_map = {entry["bus"]: entry for entry in cached}
+        for group in self._monitor_groups:
+            entry = cache_map.get(group.monitor.bus)
+            if entry:
+                group.set_brightness(entry.get("brightness", 50))
+                group.set_contrast(entry.get("contrast", 50))
         if self._master_group and self._monitor_groups:
             first = self._monitor_groups[0]
             self._master_group.set_brightness(int(first.brightness_scale.get_value()))
@@ -443,6 +738,10 @@ class BrightnessPopup(Gtk.Window):
                 self.get_window().focus(Gdk.CURRENT_TIME)
 
 
+# ---------------------------------------------------------------------------
+#  Config file
+# ---------------------------------------------------------------------------
+
 def load_config(path: str) -> dict:
     """Load config from JSON file. Returns parsed config or empty dict on error."""
     try:
@@ -459,27 +758,38 @@ def load_config(path: str) -> dict:
             "presets": presets,
         }
         if presets:
-            print(f"[ddc-brightness] Config loaded: {len(presets)} presets", file=sys.stderr)
+            print(f"[{APP_NAME}] Config loaded: {len(presets)} presets", file=sys.stderr)
         return result
     except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
-        print(f"[ddc-brightness] Error loading config: {e}", file=sys.stderr)
+        print(f"[{APP_NAME}] Error loading config: {e}", file=sys.stderr)
         return {}
 
+
+# ---------------------------------------------------------------------------
+#  Tray icon app
+# ---------------------------------------------------------------------------
 
 class TrayApp:
 
     def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
-                 scroll_step: int = DEFAULT_SCROLL_STEP, presets: list | None = None):
+                 scroll_step: int = DEFAULT_SCROLL_STEP, presets: list | None = None,
+                 cached_state: list[dict] | None = None, icon_style: str | None = None):
         self.monitors = monitors
         self.min_val = min_val
         self.max_val = max_val
         self.scroll_step = scroll_step
         self.presets = presets or []
         self.popup = BrightnessPopup(monitors, min_val, max_val, step,
-                                     on_color_temp=self._on_color_temp)
+                                     on_color_temp=self._on_color_temp,
+                                     on_value_changed=self._save_current_state)
         self._cached_brightness = None
         self._scroll_debounce_id = None
         self._redshift_paused = False
+        self._icon_path = _get_icon_path(icon_style)
+
+        # Apply cached slider values if available
+        if cached_state:
+            self.popup.apply_cached_values(cached_state)
 
         self.status_icon = None
         self.indicator = None
@@ -498,19 +808,30 @@ class TrayApp:
                     from gi.repository import AppIndicator3
                     self._setup_appindicator(AppIndicator3, tooltip)
                 except (ValueError, ImportError):
-                    print("[ddc-brightness] ERROR: No tray icon backend available!", file=sys.stderr)
+                    print(f"[{APP_NAME}] ERROR: No tray icon backend available!", file=sys.stderr)
                     sys.exit(1)
+
+    def _save_current_state(self):
+        """Collect current slider values and write state cache."""
+        values = {}
+        for group in self.popup._monitor_groups:
+            mon = group.monitor
+            values[mon.bus] = {
+                "brightness": int(group.brightness_scale.get_value()),
+                "contrast": int(group.contrast_scale.get_value()),
+            }
+        save_state(self.monitors, values)
 
     def _setup_status_icon(self, tooltip: str) -> bool:
         try:
             self.status_icon = Gtk.StatusIcon()
-            self.status_icon.set_from_icon_name(ICON_NAME)
+            self.status_icon.set_from_file(self._icon_path)
             self.status_icon.set_tooltip_text(tooltip)
             self.status_icon.set_visible(True)
             self.status_icon.connect("activate", self._on_left_click)
             self.status_icon.connect("popup-menu", self._on_right_click)
             self.status_icon.connect("scroll-event", self._on_scroll_event)
-            print("[ddc-brightness] Using GtkStatusIcon tray icon", file=sys.stderr)
+            print(f"[{APP_NAME}] Using GtkStatusIcon tray icon", file=sys.stderr)
             return True
         except Exception:
             return False
@@ -553,10 +874,9 @@ class TrayApp:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
         except FileNotFoundError:
-            print("[ddc-brightness] redshift not found, skipping color_temp", file=sys.stderr)
+            print(f"[{APP_NAME}] redshift not found, skipping color_temp", file=sys.stderr)
 
     def _on_color_temp(self, temp: int):
-        """Called when user clicks a color temperature button."""
         self._apply_redshift(temp)
 
     def _on_apply_preset(self, widget, preset_index):
@@ -564,12 +884,15 @@ class TrayApp:
         if preset_index >= len(self.presets):
             return
         preset = self.presets[preset_index]
-        for mon in self.monitors:
-            mon.brightness.set_brightness(preset["brightness"])
-            mon.contrast.set_brightness(preset["contrast"])
         self.popup.update_all(preset["brightness"], preset["contrast"])
         if preset.get("color_temp"):
             self._apply_redshift(preset["color_temp"])
+        def _do():
+            for mon in self.monitors:
+                mon.brightness.set_value(preset["brightness"])
+                mon.contrast.set_value(preset["contrast"])
+            GLib.idle_add(self._save_current_state)
+        threading.Thread(target=_do, daemon=True).start()
 
     def _build_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
@@ -614,11 +937,14 @@ class TrayApp:
             pass
 
     def _setup_appindicator(self, AppIndicatorLib, tooltip: str):
+        icon_dir = os.path.dirname(self._icon_path)
+        icon_name = os.path.splitext(os.path.basename(self._icon_path))[0]
         self.indicator = AppIndicatorLib.Indicator.new(
-            "ddc-brightness-slider",
-            ICON_NAME,
+            APP_NAME,
+            icon_name,
             AppIndicatorLib.IndicatorCategory.HARDWARE
         )
+        self.indicator.set_icon_theme_path(icon_dir)
         self.indicator.set_status(AppIndicatorLib.IndicatorStatus.ACTIVE)
         self.indicator.set_title(tooltip)
 
@@ -635,7 +961,7 @@ class TrayApp:
         self.indicator.set_secondary_activate_target(item_slider)
         self.indicator.connect("scroll-event", self._on_indicator_scroll)
 
-        print("[ddc-brightness] Using AppIndicator tray icon", file=sys.stderr)
+        print(f"[{APP_NAME}] Using AppIndicator tray icon", file=sys.stderr)
 
     def _on_indicator_activate(self, widget):
         display = Gdk.Display.get_default()
@@ -658,7 +984,7 @@ class TrayApp:
 
     def _adjust_brightness(self, delta):
         if self._cached_brightness is None:
-            self._cached_brightness = self.monitors[0].brightness.get_brightness()
+            self._cached_brightness = self.monitors[0].brightness.get_value()
             if self._cached_brightness is None:
                 return
         new_val = max(self.min_val, min(self.max_val, self._cached_brightness + delta))
@@ -675,14 +1001,20 @@ class TrayApp:
         self._scroll_debounce_id = None
         def _set_all():
             for mon in self.monitors:
-                mon.brightness.set_brightness(value)
+                mon.brightness.set_value(value)
+            GLib.idle_add(self._save_current_state)
         threading.Thread(target=_set_all, daemon=True).start()
         return False
 
 
+# ---------------------------------------------------------------------------
+#  Standalone window
+# ---------------------------------------------------------------------------
+
 class StandaloneWindow(Gtk.Window):
 
-    def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int):
+    def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
+                 cached_state: list[dict] | None = None):
         super().__init__(title="DDC Brightness & Contrast")
         self.monitors = monitors
         self._monitor_groups: list[_SliderGroup] = []
@@ -728,61 +1060,135 @@ class StandaloneWindow(Gtk.Window):
                 show_presets=not multi)
             self._monitor_groups.append(group)
 
-        self._refresh()
+        # Apply cached values first (instant), then refresh from hardware in background
+        if cached_state:
+            self._apply_cached(cached_state)
+        self._refresh_async()
 
-    def _on_monitor_brightness(self, group: _SliderGroup, value: int):
-        group.monitor.brightness.set_brightness(value)
-
-    def _on_monitor_contrast(self, group: _SliderGroup, value: int):
-        group.monitor.contrast.set_brightness(value)
-
-    def _on_master_brightness(self, group: _SliderGroup, value: int):
-        for mg in self._monitor_groups:
-            mg.set_brightness(value)
-            mg.monitor.brightness.set_brightness(value)
-
-    def _on_master_contrast(self, group: _SliderGroup, value: int):
-        for mg in self._monitor_groups:
-            mg.set_contrast(value)
-            mg.monitor.contrast.set_brightness(value)
-
-    def _refresh(self):
+    def _apply_cached(self, cached: list[dict]):
+        """Set slider positions from cache (no hardware read)."""
+        cache_map = {entry["bus"]: entry for entry in cached}
         for group in self._monitor_groups:
-            group.refresh()
+            entry = cache_map.get(group.monitor.bus)
+            if entry:
+                group.set_brightness(entry.get("brightness", 50))
+                group.set_contrast(entry.get("contrast", 50))
         if self._master_group and self._monitor_groups:
             first = self._monitor_groups[0]
             self._master_group.set_brightness(int(first.brightness_scale.get_value()))
             self._master_group.set_contrast(int(first.contrast_scale.get_value()))
 
+    def _refresh_async(self):
+        """Non-blocking hardware refresh in background thread."""
+        def _do_refresh():
+            results = {}
+            for group in self._monitor_groups:
+                mon = group.monitor
+                b = mon.brightness.get_value()
+                c = mon.contrast.get_value()
+                results[mon.bus] = (b, c)
+            GLib.idle_add(self._apply_hw_results, results)
+
+        threading.Thread(target=_do_refresh, daemon=True).start()
+
+    def _apply_hw_results(self, results: dict):
+        """Apply hardware-read values to sliders (called on main thread)."""
+        for group in self._monitor_groups:
+            vals = results.get(group.monitor.bus)
+            if vals:
+                b, c = vals
+                if b is not None:
+                    group.set_brightness(b)
+                if c is not None:
+                    group.set_contrast(c)
+        self._sync_master()
+        self._save_current_state()
+        return False
+
+    def _sync_master(self):
+        if self._master_group and self._monitor_groups:
+            first = self._monitor_groups[0]
+            self._master_group.set_brightness(int(first.brightness_scale.get_value()))
+            self._master_group.set_contrast(int(first.contrast_scale.get_value()))
+
+    def _on_monitor_brightness(self, group: _SliderGroup, value: int):
+        print(f"[{APP_NAME}] Setting brightness={value} on bus {group.monitor.bus}", file=sys.stderr)
+        threading.Thread(target=group.monitor.brightness.set_value, args=(value,), daemon=True).start()
+        self._save_current_state()
+
+    def _on_monitor_contrast(self, group: _SliderGroup, value: int):
+        print(f"[{APP_NAME}] Setting contrast={value} on bus {group.monitor.bus}", file=sys.stderr)
+        threading.Thread(target=group.monitor.contrast.set_value, args=(value,), daemon=True).start()
+        self._save_current_state()
+
+    def _on_master_brightness(self, group: _SliderGroup, value: int):
+        print(f"[{APP_NAME}] Setting master brightness={value}", file=sys.stderr)
+        def _do():
+            for mg in self._monitor_groups:
+                mg.monitor.brightness.set_value(value)
+        for mg in self._monitor_groups:
+            mg.set_brightness(value)
+        threading.Thread(target=_do, daemon=True).start()
+        self._save_current_state()
+
+    def _on_master_contrast(self, group: _SliderGroup, value: int):
+        print(f"[{APP_NAME}] Setting master contrast={value}", file=sys.stderr)
+        def _do():
+            for mg in self._monitor_groups:
+                mg.monitor.contrast.set_value(value)
+        for mg in self._monitor_groups:
+            mg.set_contrast(value)
+        threading.Thread(target=_do, daemon=True).start()
+        self._save_current_state()
+
+    def _save_current_state(self):
+        """Collect current slider values and write state cache."""
+        values = {}
+        for group in self._monitor_groups:
+            mon = group.monitor
+            values[mon.bus] = {
+                "brightness": int(group.brightness_scale.get_value()),
+                "contrast": int(group.contrast_scale.get_value()),
+            }
+        save_state(self.monitors, values)
+
+
+# ---------------------------------------------------------------------------
+#  Main
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
-        description="DDC Brightness & Contrast Slider for XFCE4",
+        description="DDC Brightness & Contrast Slider",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""\
+        epilog=f"""\
 Examples:
   %(prog)s                          # Tray icon mode (default)
   %(prog)s --standalone             # Floating window mode
-  %(prog)s --device /dev/i2c-5      # Use a different I2C bus
+  %(prog)s --bus 3                  # Use a specific I2C bus
+  %(prog)s --get                    # Print current brightness
+  %(prog)s --set 70                 # Set brightness to 70
   %(prog)s --get-contrast           # Print current contrast
   %(prog)s --set-contrast 50        # Set contrast to 50
+  %(prog)s --no-cache               # Force hardware probe (skip cache)
   %(prog)s --config config.json     # Custom config with presets
+
+Config: {DEFAULT_CONFIG_PATH}
+State:  {DEFAULT_STATE_PATH}
 """
     )
-    parser.add_argument("-d", "--device", default=DEFAULT_I2C_DEV,
-                        help="I2C device path (default: auto-detect)")
-    parser.add_argument("-r", "--register", default=DEFAULT_DDC_REGISTER,
-                        help=f"DDC register for brightness (default: {DEFAULT_DDC_REGISTER})")
-    parser.add_argument("--contrast-register", default=DEFAULT_DDC_CONTRAST_REGISTER,
-                        help=f"DDC register for contrast (default: {DEFAULT_DDC_CONTRAST_REGISTER})")
-    parser.add_argument("--min", type=int, default=DEFAULT_MIN_BRIGHTNESS,
-                        help="Minimum brightness value (default: 0)")
-    parser.add_argument("--max", type=int, default=DEFAULT_MAX_BRIGHTNESS,
-                        help="Maximum brightness value (default: 100)")
+    parser.add_argument("-V", "--version", action="version",
+                        version=f"%(prog)s {APP_VERSION}")
+    parser.add_argument("-b", "--bus", type=int, default=None,
+                        help="I2C bus number (default: auto-detect)")
+    parser.add_argument("--min", type=int, default=DEFAULT_MIN,
+                        help=f"Minimum brightness value (default: {DEFAULT_MIN})")
+    parser.add_argument("--max", type=int, default=DEFAULT_MAX,
+                        help=f"Maximum brightness value (default: {DEFAULT_MAX})")
     parser.add_argument("--step", type=int, default=DEFAULT_STEP,
-                        help="Slider step size (default: 5)")
+                        help=f"Slider step size (default: {DEFAULT_STEP})")
     parser.add_argument("--scroll-step", type=int, default=DEFAULT_SCROLL_STEP,
-                        help="Scroll wheel step size (default: 1)")
+                        help=f"Scroll wheel step size (default: {DEFAULT_SCROLL_STEP})")
     parser.add_argument("--standalone", action="store_true",
                         help="Show as a floating window instead of tray icon")
     parser.add_argument("--set", type=int, metavar="VALUE",
@@ -797,33 +1203,43 @@ Examples:
                         help=f"JSON config file with presets (default: {DEFAULT_CONFIG_PATH})")
     parser.add_argument("--no-config", action="store_true",
                         help="Disable config file loading")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Skip state cache, force hardware probe")
+    parser.add_argument("--icon", choices=["light", "dark", "auto"], default="auto",
+                        help="Tray icon color: light (white), dark (black), "
+                             "auto = detect from GTK theme (default)")
 
     args = parser.parse_args()
 
-    if args.device == "auto":
-        detected = detect_i2c_devices()
-        if not detected:
-            print("[ddc-brightness] ERROR: No DDC-capable monitor found. "
-                  "Use --device to specify manually.", file=sys.stderr)
-            sys.exit(1)
-        monitors = []
-        for dev_path, mon_name in detected:
-            label = f" ({mon_name})" if mon_name else ""
-            print(f"[ddc-brightness] Found: {dev_path}{label}", file=sys.stderr)
-            monitors.append(MonitorInfo(
-                device=dev_path, name=mon_name,
-                brightness=DDCController(dev_path, args.register),
-                contrast=DDCController(dev_path, args.contrast_register),
-            ))
-    else:
-        monitors = [MonitorInfo(
-            device=args.device, name=args.device,
-            brightness=DDCController(args.device, args.register),
-            contrast=DDCController(args.device, args.contrast_register),
-        )]
+    # --- Build monitor list ---
+    cached_state = None
 
+    if args.bus is not None:
+        # Manual bus specified — no detection needed
+        monitors = [MonitorInfo(
+            bus=args.bus, device=f"/dev/i2c-{args.bus}",
+            name=f"Monitor (bus {args.bus})",
+            brightness=DDCController(args.bus, VCP_BRIGHTNESS),
+            contrast=DDCController(args.bus, VCP_CONTRAST),
+        )]
+    else:
+        # Auto-detect: try cache first, then probe
+        if not args.no_cache:
+            cached_state = load_state()
+
+        if cached_state:
+            monitors = build_monitors_from_cache(cached_state, VCP_BRIGHTNESS, VCP_CONTRAST)
+        else:
+            detected = detect_monitors()
+            if not detected:
+                print(f"[{APP_NAME}] ERROR: No DDC-capable monitor found. "
+                      "Use --bus to specify manually.", file=sys.stderr)
+                sys.exit(1)
+            monitors = build_monitors(detected, VCP_BRIGHTNESS, VCP_CONTRAST)
+
+    # --- CLI commands (no GUI) ---
     if args.get:
-        val = monitors[0].brightness.get_brightness()
+        val = monitors[0].brightness.get_value()
         if val is not None:
             print(val)
             sys.exit(0)
@@ -832,7 +1248,7 @@ Examples:
             sys.exit(1)
 
     if args.get_contrast:
-        val = monitors[0].contrast.get_brightness()
+        val = monitors[0].contrast.get_value()
         if val is not None:
             print(val)
             sys.exit(0)
@@ -841,13 +1257,14 @@ Examples:
             sys.exit(1)
 
     if args.set is not None:
-        ok = monitors[0].brightness.set_brightness(args.set)
+        ok = monitors[0].brightness.set_value(args.set)
         sys.exit(0 if ok else 1)
 
     if args.set_contrast is not None:
-        ok = monitors[0].contrast.set_brightness(args.set_contrast)
+        ok = monitors[0].contrast.set_value(args.set_contrast)
         sys.exit(0 if ok else 1)
 
+    # --- GUI mode ---
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     config = {}
@@ -857,7 +1274,7 @@ Examples:
             os.makedirs(DEFAULT_CONFIG_DIR, exist_ok=True)
             with open(config_path, "w") as f:
                 json.dump(DEFAULT_CONFIG, f, indent=2)
-            print(f"[ddc-brightness] Created default config: {config_path}", file=sys.stderr)
+            print(f"[{APP_NAME}] Created default config: {config_path}", file=sys.stderr)
         if os.path.exists(config_path):
             config = load_config(config_path)
 
@@ -865,11 +1282,14 @@ Examples:
     presets = config.get("presets", [])
 
     if args.standalone:
-        win = StandaloneWindow(monitors, args.min, args.max, args.step)
+        win = StandaloneWindow(monitors, args.min, args.max, args.step,
+                               cached_state=cached_state)
         win.show_all()
     else:
+        icon_style = None if args.icon == "auto" else args.icon
         app = TrayApp(monitors, args.min, args.max, args.step,
-                      scroll_step=scroll_step, presets=presets)
+                      scroll_step=scroll_step, presets=presets,
+                      cached_state=cached_state, icon_style=icon_style)
 
     Gtk.main()
 
