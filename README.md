@@ -173,7 +173,21 @@ A default config is created on first run.
 | `~/.config/ddc-slider/state.json` | Cached monitor state (auto-managed) |
 | `~/.config/ddc-slider/icons/` | SVG tray icons (auto-generated, replaceable) |
 
-## Launchers & Application Menus (To solve env)
+## Autostart (default)
+
+To start ddc-slider on login, create `~/.config/autostart/ddc-slider.desktop`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=DDC Slider
+Exec=ddc-slider
+Icon=display-brightness-symbolic
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
+```
+
+## ddc-slider Launch  (To solve env)
 
 To use ddc-slider with gmrun, rofi, or desktop application menus, first create the wrapper script:
 
@@ -208,20 +222,6 @@ Now you can launch it from:
 - **Command line**: `ddc-slider` or `ddc-slider-launch`
 
 The wrapper detaches cleanly and logs to `/tmp/ddc-slider.log`.
-
-## Autostart (default)
-
-To start ddc-slider on login, create `~/.config/autostart/ddc-slider.desktop`:
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=DDC Slider
-Exec=ddc-slider
-Icon=display-brightness-symbolic
-StartupNotify=false
-X-GNOME-Autostart-enabled=true
-```
 
 ## Troubleshooting
 
