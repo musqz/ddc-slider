@@ -4,7 +4,7 @@ _12 languages covering._
 
 ## fork of xfce4-ddc-brighness-slider
 
-Disclainer: I changed the name to `ddc-slider` because the script uses `ddcutil` backend instead of `ddccontrol`.
+Disclaimer: I changed the name to `ddc-slider` because the script uses `ddcutil` backend instead of `ddccontrol`.
 
 ![window](images/window.jpg)
 
