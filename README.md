@@ -205,7 +205,7 @@ rm ~/.config/autostart/ddc-slider.desktop
 
 Original project: [xfce4-ddc-brightness-slider](https://github.com/krsnv/xfce4-ddc-brightness-slider) by Vladimir Krasnov (MIT License)
 
-Fork/rewrite by Musduz, 2026-04-05 — switched to ddcutil backend, added per-monitor controls, state cache, contrast support, and tray icon variants.
+Fork/rewrite by Musduz, 2026-04-05 — switched to ddcutil backend, added per-monitor controls, state cache, and tray icon variants.
 
 ## License
 
