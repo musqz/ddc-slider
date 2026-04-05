@@ -6,8 +6,7 @@ _12 languages covering._
 
 Disclaimer: I changed the name to `ddc-slider` because the script uses `ddcutil` backend instead of `ddccontrol`.
 
-![window](images/window.jpg){width 150px}
-![jp](images/windowJP.jpg){width 250px}
+![window](images/window.jpg)
 
 GTK3 system tray applet that controls external monitor brightness and contrast via [DDC/CI](https://en.wikipedia.org/wiki/Display_Data_Channel) protocol.
 
@@ -233,6 +232,24 @@ ddc-slider --icon dark
 # User config (optional, delete manually)
 rm -rf ~/.config/ddc-slider
 ```
+
+    Add i18n support with 12 languages
+
+    Translated UI strings (brightness, contrast, tooltips, menus):
+    - English (en)
+    - Dutch (nl)
+    - Polish (pl)
+    - German (de)
+    - Spanish (es)
+    - French (fr)
+    - Portuguese Brazilian (pt_BR)
+    - Italian (it)
+    - Russian (ru)
+    - Turkish (tr)
+    - Chinese Simplified (zh_CN)
+    - Japanese (ja)
+
+    Auto-detects from LC_MESSAGES/LANG, falls back to English.
 
 ## Credits
 
