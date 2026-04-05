@@ -1,0 +1,4 @@
+#!/bin/bash
+# Launcher wrapper - runs ddc-slider detached from terminal
+/usr/local/bin/ddc-slider > /tmp/ddc-slider.log 2>&1 &
+exit 0
