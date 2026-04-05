@@ -2,12 +2,11 @@
 
 _12 languages covering._
 
-## fork of xfce4-ddc-brighness-slider
+## [fork of xfce4-ddc-brightness-slider](https://github.com/krsnv/xfce4-ddc-brightness-slider)
 
 Disclaimer: I changed the name to `ddc-slider` because the script uses `ddcutil` backend instead of `ddccontrol`.
 
 ![window](images/window.jpg)
-![jp](images/windowJP.jpg)
 
 GTK3 system tray applet that controls external monitor brightness and contrast via [DDC/CI](https://en.wikipedia.org/wiki/Display_Data_Channel) protocol.
 
@@ -70,8 +69,11 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 # Install
 sudo cp ddc-slider.py /usr/local/bin/ddc-slider
-sudo chmod +x /usr/local/bin/ddc-slider
+sudo chmod 755 /usr/local/bin/ddc-slider
 sudo cp ddc-slider.1 /usr/local/share/man/man1/
+sudo chmod 644 /usr/local/share/man/man1/ddc-slider.1
+sudo cp release.txt /usr/local/share/ddc-slider/release.txt
+sudo chmod 644 /usr/local/share/ddc-slider/release.txt
 ```
 
 Log out and back in for the `i2c` group to take effect.
@@ -93,8 +95,11 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 # Install
 sudo cp ddc-slider.py /usr/local/bin/ddc-slider
-sudo chmod +x /usr/local/bin/ddc-slider
+sudo chmod 755 /usr/local/bin/ddc-slider
 sudo cp ddc-slider.1 /usr/local/share/man/man1/
+sudo chmod 644 /usr/local/share/man/man1/ddc-slider.1
+sudo cp release.txt /usr/local/share/ddc-slider/release.txt
+sudo chmod 644 /usr/local/share/ddc-slider/release.txt
 ```
 
 ### Verify setup
@@ -102,9 +107,6 @@ sudo cp ddc-slider.1 /usr/local/share/man/man1/
 ```bash
 # Check that ddcutil sees your monitors
 ddcutil detect
-
-# Test brightness control
-ddcutil setvcp 10 50 --bus 3
 ```
 
 ## Usage
@@ -230,6 +232,24 @@ ddc-slider --icon dark
 # User config (optional, delete manually)
 rm -rf ~/.config/ddc-slider
 ```
+
+    Add i18n support with 12 languages
+
+    Translated UI strings (brightness, contrast, tooltips, menus):
+    - English (en)
+    - Dutch (nl)
+    - Polish (pl)
+    - German (de)
+    - Spanish (es)
+    - French (fr)
+    - Portuguese Brazilian (pt_BR)
+    - Italian (it)
+    - Russian (ru)
+    - Turkish (tr)
+    - Chinese Simplified (zh_CN)
+    - Japanese (jp)
+
+    Auto-detects from LC_MESSAGES/LANG, falls back to English.
 
 ## Credits
 
