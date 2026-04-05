@@ -5,7 +5,7 @@ _12 languages covering._
 ## [fork of xfce4-ddc-brightness-slider](https://github.com/krsnv/xfce4-ddc-brightness-slider)
 
     Disclaimer: I changed the name to `ddc-slider` 
-    because the script uses `ddcutil` backend instead of `ddccontrol`.
+    because the script uses `ddcutil` backend instead of `ddccontrol` _(not maintained anymore)._
 
 GTK3 system tray applet that controls external monitor brightness and contrast via [DDC/CI](https://en.wikipedia.org/wiki/Display_Data_Channel) protocol.
 
