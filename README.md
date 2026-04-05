@@ -6,8 +6,7 @@ _12 languages covering._
 
 Disclaimer: I changed the name to `ddc-slider` because the script uses `ddcutil` backend instead of `ddccontrol`.
 
-![window](images/window.jpg)
-![jp](images/windowJP.jpg)
+![window](images/window.jpg)![jp](images/windowJP.jpg)
 
 GTK3 system tray applet that controls external monitor brightness and contrast via [DDC/CI](https://en.wikipedia.org/wiki/Display_Data_Channel) protocol.
 
