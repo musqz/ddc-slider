@@ -448,10 +448,12 @@ def detect_monitors() -> list[tuple[int, str]]:
             m = re.search(r'I2C bus:\s*/dev/i2c-(\d+)', line)
             if m:
                 bus = int(m.group(1))
-            # Model name from EDID
+            # Model name from EDID - extract only manufacturer code (first word)
             m = re.search(r'Model:\s*(.+)', line)
             if m:
-                name = m.group(1).strip()
+                full_model = m.group(1).strip()
+                # Extract only the first word (manufacturer code: DELL, PHL, LEN, etc.)
+                name = full_model.split()[0] if full_model else ""
         # Don't forget the last display
         if bus is not None and valid:
             monitors.append((bus, name))
