@@ -3,13 +3,133 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_PATH="/usr/local/bin/ddc-slider"
-MAN_PATH="/usr/local/share/man/man1/ddc-slider.1"
+
+# Read version from release.txt
+VERSION="unknown"
+if [ -f "$SCRIPT_DIR/release.txt" ]; then
+    VERSION=$(tr -d '[:space:]' < "$SCRIPT_DIR/release.txt")
+fi
+
+# Defaults
+PREFIX="/usr/local"
+ACTION="install"
+
+# Parse arguments
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --prefix)
+            PREFIX="$2"
+            shift 2
+            ;;
+        --prefix=*)
+            PREFIX="${1#--prefix=}"
+            shift
+            ;;
+        --uninstall)
+            ACTION="uninstall"
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo
+            echo "Options:"
+            echo "  --prefix PATH    Install prefix (default: /usr/local)"
+            echo "  --uninstall      Remove ddc-slider"
+            echo "  -h, --help       Show this help"
+            echo
+            echo "Examples:"
+            echo "  $0                         # Install to /usr/local"
+            echo "  $0 --prefix ~/.local       # Install to ~/.local (no sudo)"
+            echo "  $0 --uninstall             # Remove from /usr/local"
+            echo "  $0 --uninstall --prefix ~/.local"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Try: $0 --help"
+            exit 1
+            ;;
+    esac
+done
+
+# Derived paths
+BIN_DIR="$PREFIX/bin"
+MAN_DIR="$PREFIX/share/man/man1"
+SHARE_DIR="$PREFIX/share/ddc-slider"
+INSTALL_PATH="$BIN_DIR/ddc-slider"
+MAN_PATH="$MAN_DIR/ddc-slider.1"
 DESKTOP_FILE="ddc-slider.desktop"
 AUTOSTART_PATH="$HOME/.config/autostart/$DESKTOP_FILE"
 APPS_PATH="$HOME/.local/share/applications/$DESKTOP_FILE"
 
-### Todo auto release.
+# Use sudo only if PREFIX requires it
+SUDO=""
+if [ ! -w "$PREFIX" ] 2>/dev/null; then
+    if [ "$ACTION" = "install" ]; then
+        if ! mkdir -p "$BIN_DIR" 2>/dev/null; then
+            SUDO="sudo"
+        fi
+    else
+        if [ -f "$INSTALL_PATH" ] && [ ! -w "$INSTALL_PATH" ]; then
+            SUDO="sudo"
+        fi
+    fi
+fi
+
+# =========================================================================
+#  Uninstall
+# =========================================================================
+if [ "$ACTION" = "uninstall" ]; then
+    echo "== ddc-slider $VERSION Uninstaller =="
+    echo "  Prefix: $PREFIX"
+    echo
+
+    removed=0
+
+    if [ -f "$INSTALL_PATH" ]; then
+        $SUDO rm -f "$INSTALL_PATH"
+        echo "  Removed: $INSTALL_PATH"
+        removed=$((removed + 1))
+    fi
+
+    if [ -f "$MAN_PATH" ]; then
+        $SUDO rm -f "$MAN_PATH"
+        echo "  Removed: $MAN_PATH"
+        removed=$((removed + 1))
+    fi
+
+    if [ -d "$SHARE_DIR" ]; then
+        $SUDO rm -rf "$SHARE_DIR"
+        echo "  Removed: $SHARE_DIR"
+        removed=$((removed + 1))
+    fi
+
+    if [ -f "$AUTOSTART_PATH" ]; then
+        rm -f "$AUTOSTART_PATH"
+        echo "  Removed: $AUTOSTART_PATH"
+        removed=$((removed + 1))
+    fi
+
+    if [ -f "$APPS_PATH" ]; then
+        rm -f "$APPS_PATH"
+        echo "  Removed: $APPS_PATH"
+        removed=$((removed + 1))
+    fi
+
+    echo
+    if [ "$removed" -eq 0 ]; then
+        echo "Nothing to remove. Was ddc-slider installed with --prefix $PREFIX?"
+    else
+        echo "Uninstall complete ($removed items removed)."
+        echo
+        echo "User config left at ~/.config/ddc-slider/ (delete manually if desired)."
+    fi
+    exit 0
+fi
+
+# =========================================================================
+#  Install
+# =========================================================================
 
 # Detect distro family
 detect_distro() {
@@ -45,8 +165,9 @@ detect_distro() {
 
 DISTRO=$(detect_distro)
 
-echo "== ddc-slider Installer =="
-echo "  Detected distro family: $DISTRO"
+echo "== ddc-slider $VERSION Installer =="
+echo "  Distro: $DISTRO"
+echo "  Prefix: $PREFIX"
 echo
 
 install_packages_arch() {
@@ -163,23 +284,37 @@ else
     echo "  User is already in 'i2c' group."
 fi
 
-echo "[3/5] Installing ddc-slider..."
-sudo cp "$SCRIPT_DIR/ddc-slider.py" "$INSTALL_PATH"
-sudo chmod +x "$INSTALL_PATH"
-echo "  Installed: $INSTALL_PATH"
+echo "[3/5] Installing ddc-slider $VERSION..."
 
+$SUDO mkdir -p "$BIN_DIR"
+$SUDO cp "$SCRIPT_DIR/ddc-slider.py" "$INSTALL_PATH"
+$SUDO chmod 755 "$INSTALL_PATH"
+echo "  Script:  $INSTALL_PATH"
+
+# Install release.txt so --version works at runtime
+$SUDO mkdir -p "$SHARE_DIR"
+$SUDO cp "$SCRIPT_DIR/release.txt" "$SHARE_DIR/release.txt"
+$SUDO chmod 644 "$SHARE_DIR/release.txt"
+echo "  Version: $SHARE_DIR/release.txt"
+
+# Install man page with version placeholder replaced
 if [ -f "$SCRIPT_DIR/ddc-slider.1" ]; then
-    sudo mkdir -p "$(dirname "$MAN_PATH")"
-    sudo cp "$SCRIPT_DIR/ddc-slider.1" "$MAN_PATH"
-    echo "  Man page: $MAN_PATH"
+    $SUDO mkdir -p "$MAN_DIR"
+    sed "s/__VERSION__/$VERSION/g" "$SCRIPT_DIR/ddc-slider.1" | $SUDO tee "$MAN_PATH" > /dev/null
+    $SUDO chmod 644 "$MAN_PATH"
+    echo "  Man:     $MAN_PATH"
 fi
 
 echo "[4/5] Setting up autostart..."
 mkdir -p "$(dirname "$AUTOSTART_PATH")"
-cp "$SCRIPT_DIR/$DESKTOP_FILE" "$AUTOSTART_PATH"
-
-mkdir -p "$(dirname "$APPS_PATH")"
-cp "$SCRIPT_DIR/$DESKTOP_FILE" "$APPS_PATH"
+if [ -f "$SCRIPT_DIR/$DESKTOP_FILE" ]; then
+    cp "$SCRIPT_DIR/$DESKTOP_FILE" "$AUTOSTART_PATH"
+    mkdir -p "$(dirname "$APPS_PATH")"
+    cp "$SCRIPT_DIR/$DESKTOP_FILE" "$APPS_PATH"
+    echo "  Desktop: $AUTOSTART_PATH"
+else
+    echo "  Skipped: $DESKTOP_FILE not found"
+fi
 
 echo "[5/5] Detecting DDC-capable monitors..."
 echo
@@ -208,7 +343,11 @@ echo "  ddc-slider                    # Tray icon (default)"
 echo "  ddc-slider --standalone       # Floating window"
 echo "  ddc-slider --icon light       # White tray icon (for dark panels)"
 echo "  ddc-slider --bus 3            # Specific I2C bus"
+echo "  ddc-slider --version          # Show version"
 echo "  man ddc-slider                # Full documentation"
+echo
+echo "Uninstall:"
+echo "  $0 --uninstall"
 echo
 echo "The app will auto-start on next login."
 echo "To launch now:  ddc-slider &"

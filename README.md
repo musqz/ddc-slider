@@ -27,7 +27,24 @@ Works with any desktop environment or window manager that has a system tray (tin
 
 ## Installation
 
-### Arch Linux / Mabox / Manjaro
+### Quick install (recommended)
+
+```bash
+git clone https://github.com/musduz/ddc-slider.git
+cd ddc-slider
+chmod +x install.sh
+./install.sh
+```
+
+The installer handles dependencies, I2C permissions, man page, and autostart.
+
+#### Custom prefix (no sudo needed)
+
+```bash
+./install.sh --prefix ~/.local
+```
+
+### Manual install — Arch Linux / Mabox / Manjaro
 
 ```bash
 sudo pacman -S ddcutil python-gobject gtk3
@@ -50,7 +67,7 @@ sudo cp ddc-slider.1 /usr/local/share/man/man1/
 
 Log out and back in for the `i2c` group to take effect.
 
-### Ubuntu / Debian
+### Manual install — Ubuntu / Debian
 
 ```bash
 sudo apt install ddcutil python3-gi gir1.2-gtk-3.0
@@ -195,10 +212,14 @@ ddc-slider --icon dark
 ## Uninstall
 
 ```bash
-sudo rm /usr/local/bin/ddc-slider
-sudo rm /usr/local/share/man/man1/ddc-slider.1
+# Via install script
+./install.sh --uninstall
+
+# With custom prefix
+./install.sh --uninstall --prefix ~/.local
+
+# User config (optional, delete manually)
 rm -rf ~/.config/ddc-slider
-rm ~/.config/autostart/ddc-slider.desktop
 ```
 
 ## Credits

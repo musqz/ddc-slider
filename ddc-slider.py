@@ -47,10 +47,13 @@ import time
 APP_NAME = "ddc-slider"
 APP_VERSION = "unknown"
 
-# Read version from release.txt (next to script, or /usr/local/share/ddc-slider/)
+# Read version from release.txt
+# Search order: next to script (dev), then derive share dir from install prefix
+_script_dir = os.path.dirname(os.path.realpath(__file__))
+_prefix_share = os.path.join(os.path.dirname(_script_dir), "share", APP_NAME)
 for _vpath in [
-    os.path.join(os.path.dirname(os.path.realpath(__file__)), "release.txt"),
-    "/usr/local/share/ddc-slider/release.txt",
+    os.path.join(_script_dir, "release.txt"),
+    os.path.join(_prefix_share, "release.txt"),
 ]:
     try:
         with open(_vpath) as _f:
@@ -1177,7 +1180,7 @@ Config: {DEFAULT_CONFIG_PATH}
 State:  {DEFAULT_STATE_PATH}
 """
     )
-    parser.add_argument("-V", "--version", action="version",
+    parser.add_argument("-v", "-V", "--version", action="version",
                         version=f"%(prog)s {APP_VERSION}")
     parser.add_argument("-b", "--bus", type=int, default=None,
                         help="I2C bus number (default: auto-detect)")
