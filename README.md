@@ -72,6 +72,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 sudo cp ddc-slider.py /usr/local/bin/ddc-slider
 sudo chmod 755 /usr/local/bin/ddc-slider
 sudo cp ddc-slider.1 /usr/local/share/man/man1/
+sudo chmod 644 /usr/local/share/man/man1/ddc-slider.1
 sudo cp release.txt /usr/local/share/ddc-slider/release.txt
 sudo chmod 644 /usr/local/share/ddc-slider/release.txt
 ```
@@ -97,6 +98,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 sudo cp ddc-slider.py /usr/local/bin/ddc-slider
 sudo chmod 755 /usr/local/bin/ddc-slider
 sudo cp ddc-slider.1 /usr/local/share/man/man1/
+sudo chmod 644 /usr/local/share/man/man1/ddc-slider.1
 sudo cp release.txt /usr/local/share/ddc-slider/release.txt
 sudo chmod 644 /usr/local/share/ddc-slider/release.txt
 ```
