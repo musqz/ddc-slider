@@ -1,0 +1,153 @@
+.TH DDC-SLIDER 1 "__VERSION__" "ddc-slider" "User Commands"
+.SH NAME
+ddc-slider \- DDC/CI brightness and contrast control for monitors
+.SH SYNOPSIS
+.B ddc-slider
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B ddc-slider
+is a GTK3 application that controls monitor brightness and contrast via the
+DDC/CI protocol using
+.BR ddcutil (1).
+It runs as a system tray icon by default, or as a standalone floating window.
+.PP
+Features include per-monitor brightness and contrast sliders, a master slider
+for multi-monitor setups, color temperature presets via
+.BR redshift (1),
+configurable user presets, and a state cache for instant startup.
+.PP
+On first launch, \fBddc-slider\fR probes for DDC-capable monitors using
+\fBddcutil detect\fR and caches the result. Subsequent launches use the cache
+for instant startup and refresh values from hardware in the background.
+.SH OPTIONS
+.TP
+.B \-b, \-\-bus \fINUM\fR
+Use a specific I2C bus number instead of auto-detection.
+.TP
+.B \-\-standalone
+Show as a floating window instead of a system tray icon.
+.TP
+.B \-\-get
+Print current brightness of the first monitor and exit.
+.TP
+.B \-\-set \fIVALUE\fR
+Set brightness of the first monitor to VALUE (0\-100) and exit.
+.TP
+.B \-\-get\-contrast
+Print current contrast of the first monitor and exit.
+.TP
+.B \-\-set\-contrast \fIVALUE\fR
+Set contrast of the first monitor to VALUE (0\-100) and exit.
+.TP
+.B \-\-min \fIVALUE\fR
+Minimum slider value (default: 0).
+.TP
+.B \-\-max \fIVALUE\fR
+Maximum slider value (default: 100).
+.TP
+.B \-\-step \fIVALUE\fR
+Slider step size (default: 5).
+.TP
+.B \-\-scroll\-step \fIVALUE\fR
+Scroll wheel step size for the tray icon (default: 1).
+.TP
+.B \-\-config \fIFILE\fR
+Path to a JSON config file with presets. Default:
+.IR ~/.config/ddc-slider/config.json .
+.TP
+.B \-\-no\-config
+Disable config file loading.
+.TP
+.B \-\-no\-cache
+Skip the state cache and force a fresh hardware probe.
+.TP
+.B \-\-icon \fISTYLE\fR
+Tray icon color: \fBlight\fR (white icon), \fBdark\fR (black icon),
+or \fBauto\fR (detect from GTK theme, default). Icons are stored as
+SVGs in \fI~/.config/ddc-slider/icons/\fR and can be replaced with
+custom icons.
+.TP
+.B \-v, \-V, \-\-version
+Print version and exit.
+.SH TRAY ICON USAGE
+.TP
+.B Left-click
+Toggle the brightness/contrast popup.
+.TP
+.B Scroll wheel
+Adjust brightness of all monitors.
+.TP
+.B Right-click
+Context menu with presets, redshift toggle, and quit.
+.SH CONFIGURATION
+The config file at \fI~/.config/ddc-slider/config.json\fR supports:
+.PP
+.nf
+{
+  "scroll_step": 1,
+  "presets": [
+    {
+      "name": "Movie",
+      "brightness": 30,
+      "contrast": 60,
+      "color_temp": 3500
+    },
+    {
+      "name": "Reading",
+      "brightness": 80,
+      "contrast": 40,
+      "color_temp": 5500
+    }
+  ]
+}
+.fi
+.PP
+Color temperature presets require
+.BR redshift (1)
+to be installed.
+.SH STATE CACHE
+Monitor detection results and last-used slider values are cached at
+\fI~/.config/ddc-slider/state.json\fR to allow instant startup. The cache
+expires after 24 hours. Use \fB\-\-no\-cache\fR to force a fresh probe.
+.SH SETUP
+.TP
+.B 1. Install ddcutil
+pacman \-S ddcutil
+.TP
+.B 2. Load the i2c\-dev kernel module
+sudo modprobe i2c\-dev
+.TP
+.B 3. Add your user to the i2c group
+sudo usermod \-aG i2c $USER
+.PP
+Log out and back in for group changes to take effect.
+.TP
+.B 4. Verify access
+ddcutil detect
+.SH FILES
+.TP
+.I ~/.config/ddc-slider/config.json
+User configuration with presets and scroll step.
+.TP
+.I ~/.config/ddc-slider/state.json
+Cached monitor state for instant startup.
+.TP
+.I ~/.config/ddc-slider/icons/
+Auto-generated SVG tray icons (brightness-light.svg, brightness-dark.svg).
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Error (no monitors found, ddcutil failure, etc.)
+.SH SEE ALSO
+.BR ddcutil (1),
+.BR redshift (1),
+.BR i2c\-dev (4)
+.SH AUTHORS
+Original: Vladimir Krasnov (MIT License)
+.br
+Fork/rewrite: Musduz (MIT License)
+.SH LICENSE
+MIT
