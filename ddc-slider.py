@@ -63,6 +63,195 @@ for _vpath in [
         continue
 
 DEFAULT_CONFIG_DIR = os.path.expanduser(f"~/.config/{APP_NAME}")
+
+# ---------------------------------------------------------------------------
+#  Internationalization — translations for UI strings
+# ---------------------------------------------------------------------------
+
+_TRANSLATIONS = {
+    "en": {
+        "brightness":        "☀ Brightness",
+        "contrast":          "◑ Contrast",
+        "all_monitors":      "🖥 All Monitors",
+        "color_temp":        "🌡 Color Temp",
+        "tooltip":           "DDC Brightness",
+        "tooltip_multi":     "DDC Brightness ({n} monitors)",
+        "resume_redshift":   "▶ Resume Redshift",
+        "pause_redshift":    "⏸ Pause Redshift",
+        "quit":              "Quit",
+        "brightness_slider": "☀ Brightness Slider",
+        "window_title":      "DDC Brightness & Contrast",
+    },
+    "nl": {
+        "brightness":        "☀ Helderheid",
+        "contrast":          "◑ Contrast",
+        "all_monitors":      "🖥 Alle Beeldschermen",
+        "color_temp":        "🌡 Kleurtemp",
+        "tooltip":           "DDC Helderheid",
+        "tooltip_multi":     "DDC Helderheid ({n} beeldschermen)",
+        "resume_redshift":   "▶ Redshift hervatten",
+        "pause_redshift":    "⏸ Redshift pauzeren",
+        "quit":              "Afsluiten",
+        "brightness_slider": "☀ Helderheidsregelaar",
+        "window_title":      "DDC Helderheid & Contrast",
+    },
+    "pl": {
+        "brightness":        "☀ Jasność",
+        "contrast":          "◑ Kontrast",
+        "all_monitors":      "🖥 Wszystkie Monitory",
+        "color_temp":        "🌡 Temp. Kolorów",
+        "tooltip":           "DDC Jasność",
+        "tooltip_multi":     "DDC Jasność ({n} monitorów)",
+        "resume_redshift":   "▶ Wznów Redshift",
+        "pause_redshift":    "⏸ Wstrzymaj Redshift",
+        "quit":              "Zakończ",
+        "brightness_slider": "☀ Suwak Jasności",
+        "window_title":      "DDC Jasność i Kontrast",
+    },
+    "de": {
+        "brightness":        "☀ Helligkeit",
+        "contrast":          "◑ Kontrast",
+        "all_monitors":      "🖥 Alle Bildschirme",
+        "color_temp":        "🌡 Farbtemp.",
+        "tooltip":           "DDC Helligkeit",
+        "tooltip_multi":     "DDC Helligkeit ({n} Bildschirme)",
+        "resume_redshift":   "▶ Redshift fortsetzen",
+        "pause_redshift":    "⏸ Redshift pausieren",
+        "quit":              "Beenden",
+        "brightness_slider": "☀ Helligkeitsregler",
+        "window_title":      "DDC Helligkeit & Kontrast",
+    },
+    "es": {
+        "brightness":        "☀ Brillo",
+        "contrast":          "◑ Contraste",
+        "all_monitors":      "🖥 Todos los Monitores",
+        "color_temp":        "🌡 Temp. Color",
+        "tooltip":           "DDC Brillo",
+        "tooltip_multi":     "DDC Brillo ({n} monitores)",
+        "resume_redshift":   "▶ Reanudar Redshift",
+        "pause_redshift":    "⏸ Pausar Redshift",
+        "quit":              "Salir",
+        "brightness_slider": "☀ Control de Brillo",
+        "window_title":      "DDC Brillo y Contraste",
+    },
+    "fr": {
+        "brightness":        "☀ Luminosité",
+        "contrast":          "◑ Contraste",
+        "all_monitors":      "🖥 Tous les Écrans",
+        "color_temp":        "🌡 Temp. Couleur",
+        "tooltip":           "DDC Luminosité",
+        "tooltip_multi":     "DDC Luminosité ({n} écrans)",
+        "resume_redshift":   "▶ Reprendre Redshift",
+        "pause_redshift":    "⏸ Suspendre Redshift",
+        "quit":              "Quitter",
+        "brightness_slider": "☀ Curseur de Luminosité",
+        "window_title":      "DDC Luminosité & Contraste",
+    },
+    "pt_BR": {
+        "brightness":        "☀ Brilho",
+        "contrast":          "◑ Contraste",
+        "all_monitors":      "🖥 Todos os Monitores",
+        "color_temp":        "🌡 Temp. Cor",
+        "tooltip":           "DDC Brilho",
+        "tooltip_multi":     "DDC Brilho ({n} monitores)",
+        "resume_redshift":   "▶ Retomar Redshift",
+        "pause_redshift":    "⏸ Pausar Redshift",
+        "quit":              "Sair",
+        "brightness_slider": "☀ Controle de Brilho",
+        "window_title":      "DDC Brilho e Contraste",
+    },
+    "it": {
+        "brightness":        "☀ Luminosità",
+        "contrast":          "◑ Contrasto",
+        "all_monitors":      "🖥 Tutti i Monitor",
+        "color_temp":        "🌡 Temp. Colore",
+        "tooltip":           "DDC Luminosità",
+        "tooltip_multi":     "DDC Luminosità ({n} monitor)",
+        "resume_redshift":   "▶ Riprendi Redshift",
+        "pause_redshift":    "⏸ Sospendi Redshift",
+        "quit":              "Esci",
+        "brightness_slider": "☀ Cursore Luminosità",
+        "window_title":      "DDC Luminosità e Contrasto",
+    },
+    "ru": {
+        "brightness":        "☀ Яркость",
+        "contrast":          "◑ Контраст",
+        "all_monitors":      "🖥 Все мониторы",
+        "color_temp":        "🌡 Цвет. темп.",
+        "tooltip":           "DDC Яркость",
+        "tooltip_multi":     "DDC Яркость ({n} мониторов)",
+        "resume_redshift":   "▶ Возобновить Redshift",
+        "pause_redshift":    "⏸ Приостановить Redshift",
+        "quit":              "Выход",
+        "brightness_slider": "☀ Регулятор яркости",
+        "window_title":      "DDC Яркость и Контраст",
+    },
+    "tr": {
+        "brightness":        "☀ Parlaklık",
+        "contrast":          "◑ Kontrast",
+        "all_monitors":      "🖥 Tüm Ekranlar",
+        "color_temp":        "🌡 Renk Sıcak.",
+        "tooltip":           "DDC Parlaklık",
+        "tooltip_multi":     "DDC Parlaklık ({n} ekran)",
+        "resume_redshift":   "▶ Redshift Devam",
+        "pause_redshift":    "⏸ Redshift Duraklat",
+        "quit":              "Çıkış",
+        "brightness_slider": "☀ Parlaklık Kaydırıcı",
+        "window_title":      "DDC Parlaklık ve Kontrast",
+    },
+    "zh_CN": {
+        "brightness":        "☀ 亮度",
+        "contrast":          "◑ 对比度",
+        "all_monitors":      "🖥 所有显示器",
+        "color_temp":        "🌡 色温",
+        "tooltip":           "DDC 亮度",
+        "tooltip_multi":     "DDC 亮度 ({n} 台显示器)",
+        "resume_redshift":   "▶ 恢复 Redshift",
+        "pause_redshift":    "⏸ 暂停 Redshift",
+        "quit":              "退出",
+        "brightness_slider": "☀ 亮度滑块",
+        "window_title":      "DDC 亮度和对比度",
+    },
+    "ja": {
+        "brightness":        "☀ 明るさ",
+        "contrast":          "◑ コントラスト",
+        "all_monitors":      "🖥 全モニター",
+        "color_temp":        "🌡 色温度",
+        "tooltip":           "DDC 明るさ",
+        "tooltip_multi":     "DDC 明るさ ({n} 台)",
+        "resume_redshift":   "▶ Redshift 再開",
+        "pause_redshift":    "⏸ Redshift 一時停止",
+        "quit":              "終了",
+        "brightness_slider": "☀ 明るさスライダー",
+        "window_title":      "DDC 明るさ・コントラスト",
+    },
+}
+
+
+def _detect_lang() -> str:
+    """Detect UI language from LANG/LC_MESSAGES environment."""
+    lang = os.environ.get("LC_MESSAGES", os.environ.get("LANG", "en"))
+    # Try exact match first (e.g. pt_BR)
+    code = lang.split(".")[0]  # strip .UTF-8
+    if code in _TRANSLATIONS:
+        return code
+    # Try language prefix (e.g. "de" from "de_DE")
+    prefix = code.split("_")[0]
+    if prefix in _TRANSLATIONS:
+        return prefix
+    return "en"
+
+
+_LANG = _detect_lang()
+_STRINGS = _TRANSLATIONS.get(_LANG, _TRANSLATIONS["en"])
+
+
+def _(key: str, **kwargs) -> str:
+    """Get translated string. Falls back to English."""
+    s = _STRINGS.get(key) or _TRANSLATIONS["en"].get(key, key)
+    if kwargs:
+        s = s.format(**kwargs)
+    return s
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_CONFIG_DIR, "config.json")
 DEFAULT_STATE_PATH = os.path.join(DEFAULT_CONFIG_DIR, "state.json")
 DEFAULT_CONFIG = {
@@ -387,7 +576,7 @@ class _SliderGroup:
 
         # --- Brightness ---
         title = Gtk.Label()
-        title.set_markup("<b>☀ Brightness</b>")
+        title.set_markup(f"<b>{_('brightness')}</b>")
         vbox.pack_start(title, False, False, 0)
         vbox.pack_start(Gtk.Separator(), False, False, 0)
 
@@ -422,7 +611,7 @@ class _SliderGroup:
         # --- Contrast ---
         vbox.pack_start(Gtk.Separator(), False, False, 0)
         contrast_title = Gtk.Label()
-        contrast_title.set_markup("<b>◑ Contrast</b>")
+        contrast_title.set_markup(f"<b>{_('contrast')}</b>")
         vbox.pack_start(contrast_title, False, False, 0)
         vbox.pack_start(Gtk.Separator(), False, False, 0)
 
@@ -553,7 +742,7 @@ class BrightnessPopup(Gtk.Window):
 
         if multi:
             header = Gtk.Label()
-            header.set_markup("<b>🖥 All Monitors</b>")
+            header.set_markup(f"<b>{_('all_monitors')}</b>")
             vbox.pack_start(header, False, False, 0)
             master_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             vbox.pack_start(master_box, False, False, 0)
@@ -582,7 +771,7 @@ class BrightnessPopup(Gtk.Window):
         if on_color_temp is not None:
             vbox.pack_start(Gtk.Separator(), False, False, 0)
             temp_title = Gtk.Label()
-            temp_title.set_markup("<b>🌡 Color Temp</b>")
+            temp_title.set_markup(f"<b>{_('color_temp')}</b>")
             vbox.pack_start(temp_title, False, False, 0)
             temp_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
             temp_box.set_homogeneous(True)
@@ -798,7 +987,7 @@ class TrayApp:
         self.indicator = None
 
         n = len(monitors)
-        tooltip = f"DDC Brightness ({n} monitors)" if n > 1 else "DDC Brightness"
+        tooltip = _("tooltip_multi", n=n) if n > 1 else _("tooltip")
 
         if not self._setup_status_icon(tooltip):
             try:
@@ -909,12 +1098,12 @@ class TrayApp:
                 menu.append(item)
             menu.append(Gtk.SeparatorMenuItem())
         if self._is_redshift_running():
-            label = "▶ Resume Redshift" if self._redshift_paused else "⏸ Pause Redshift"
+            label = _("resume_redshift") if self._redshift_paused else _("pause_redshift")
             item_rs = Gtk.MenuItem(label=label)
             item_rs.connect("activate", self._on_toggle_redshift)
             menu.append(item_rs)
             menu.append(Gtk.SeparatorMenuItem())
-        item_quit = Gtk.MenuItem(label="Quit")
+        item_quit = Gtk.MenuItem(label=_("quit"))
         item_quit.connect("activate", lambda w: Gtk.main_quit())
         menu.append(item_quit)
         menu.show_all()
@@ -953,7 +1142,7 @@ class TrayApp:
 
         menu = self._build_menu()
 
-        item_slider = Gtk.MenuItem(label="☀ Brightness Slider")
+        item_slider = Gtk.MenuItem(label=_("brightness_slider"))
         item_slider.connect("activate", self._on_indicator_activate)
         item_slider.show()
         sep = Gtk.SeparatorMenuItem()
@@ -1018,7 +1207,7 @@ class StandaloneWindow(Gtk.Window):
 
     def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
                  cached_state: list[dict] | None = None):
-        super().__init__(title="DDC Brightness & Contrast")
+        super().__init__(title=_("window_title"))
         self.monitors = monitors
         self._monitor_groups: list[_SliderGroup] = []
         self._master_group: _SliderGroup | None = None
@@ -1037,7 +1226,7 @@ class StandaloneWindow(Gtk.Window):
 
         if multi:
             header = Gtk.Label()
-            header.set_markup("<b>🖥 All Monitors</b>")
+            header.set_markup(f"<b>{_('all_monitors')}</b>")
             vbox.pack_start(header, False, False, 0)
             master_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             vbox.pack_start(master_box, False, False, 0)

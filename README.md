@@ -1,5 +1,7 @@
 # ddc-slider 
 
+_12 languages covering._
+
 ## fork of xfce4-ddc-brighness-slider
 
 ![window](images/window.jpg)
