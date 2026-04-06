@@ -308,4 +308,4 @@ NOTE:
 - ddccontrol: Last release 0.1.3 (2005), no longer in most distros. No longer maintained.
 https://www.ddcutil.com/ddccontrol/
 - ddcutil: Actively maintained, modern codebase, in all major distros
-- ddcutil author: Sanford Rockowitz (active development 2024+)
+- ddcutil author: [Sanford Rockowitz](https://github.com/rockowitz/ddcutil) (active development 2024+)
