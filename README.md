@@ -275,7 +275,7 @@ ddc-slider --icon dark
 rm -rf ~/.config/ddc-slider
 ```
 
-## Languages
+## Languages (only menu)
 
     Translated UI strings (brightness, contrast, tooltips, menus):
     - English (en)
@@ -292,6 +292,9 @@ rm -rf ~/.config/ddc-slider
     - Japanese (jp)
 
     falls back to English.
+
+_Todo translate manual & help._
+
 
 ## Credits
 
