@@ -212,12 +212,6 @@ Categories=Utility;Settings;
 Keywords=brightness;contrast;monitor;ddc;
 ```
 
-Now you can launch it from:
-- **gmrun** (Alt+F2): Type "DDC" and press Enter
-- **rofi**: Alt+F2, search "DDC Brightness"
-- **Application menu**: Look for "DDC Brightness & Contrast"
-- **Command line**: `ddc-slider` or `ddc-slider-launch`
-
 The wrapper detaches cleanly and logs to `/tmp/ddc-slider.log`.
 
 ## Troubleshooting
