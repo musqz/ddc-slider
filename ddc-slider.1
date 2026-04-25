@@ -11,10 +11,12 @@ DDC/CI protocol using
 .BR ddcutil (1).
 It runs as a system tray icon by default, or as a standalone floating window.
 .PP
-Features include per-monitor brightness and contrast sliders, a master slider
-for multi-monitor setups, color temperature presets via
-.BR redshift (1),
-configurable user presets, and a state cache for instant startup.
+Features include per-monitor brightness, contrast and color-temperature
+sliders, a master row for multi-monitor setups, configurable user presets,
+and a state cache for instant startup. Color temperature is applied
+per-monitor via
+.BR redshift (1)
+in randr mode, scoped to each monitor's CRTC.
 .PP
 On first launch, \fBddc-slider\fR probes for DDC-capable monitors using
 \fBddcutil detect\fR and caches the result. Subsequent launches use the cache
@@ -79,6 +81,19 @@ Adjust brightness of all monitors.
 .TP
 .B Right-click
 Context menu with presets, redshift toggle, and quit.
+.SH COLOR TEMPERATURE
+Each monitor row in the popup has its own color-temperature slider
+(3000\(enKelvin\(en6500K, neutral at 6500K). In multi-monitor mode the
+master row broadcasts to all monitors. Values are persisted in the state
+cache and re-applied on launch, since X gamma resets per session.
+.PP
+Per-monitor scoping uses
+.B redshift -m randr:crtc=N
+where the CRTC index is resolved by mapping the I2C bus through
+\fI/sys/class/drm/<connector>/ddc\fR to a DRM connector and matching it
+against \fBxrandr --verbose\fR. When the mapping cannot be resolved
+(Wayland, headless, or single-monitor setups), \fBddc-slider\fR falls back
+to a global \fBredshift -O\fR call that tints the whole X session.
 .SH CONFIGURATION
 The config file at \fI~/.config/ddc-slider/config.json\fR supports:
 .PP
@@ -104,9 +119,12 @@ The \fBmonitor_names\fR section maps I2C bus numbers to custom display names.
 Find bus numbers with \fBddcutil detect\fR. If not set, the EDID model name
 is used (e.g. "PHL 275E1").
 .PP
-Color temperature presets require
+Color-temperature presets and the per-monitor color-temp slider both
+require
 .BR redshift (1)
-to be installed.
+to be installed. See
+.B COLOR TEMPERATURE
+above for details on per-output scoping and the global fallback.
 .SH STATE CACHE
 Monitor detection results and last-used slider values are cached at
 \fI~/.config/ddc-slider/state.json\fR to allow instant startup. The cache

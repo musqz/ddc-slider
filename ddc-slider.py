@@ -363,6 +363,124 @@ class MonitorInfo:
     name: str              # "Dell U2515H"
     brightness: 'DDCController'
     contrast: 'DDCController'
+    output_name: str | None = None   # X randr output name, e.g. "DP-1"
+    crtc_index: int | None = None    # X randr CRTC index for redshift -m randr:crtc=N
+
+
+# ---------------------------------------------------------------------------
+#  Color temperature constants
+# ---------------------------------------------------------------------------
+
+COLOR_TEMP_MIN = 3000
+COLOR_TEMP_MAX = 6500
+COLOR_TEMP_NEUTRAL = 6500     # daylight, no tint
+COLOR_TEMP_STEP = 100
+COLOR_TEMP_MARKS = (3000, 4000, 5500, 6500)
+
+
+# ---------------------------------------------------------------------------
+#  Per-output color temperature: I2C bus -> DRM connector -> X randr CRTC
+# ---------------------------------------------------------------------------
+
+def _get_drm_connector_for_bus(bus: int) -> str | None:
+    """Find the DRM connector name (e.g. 'DP-1', 'HDMI-A-1') that owns an
+    I2C bus, by walking /sys/class/drm/<connector>/ddc.
+    Returns None if no match (e.g. on Wayland-only setups, no kernel info)."""
+    try:
+        entries = os.listdir("/sys/class/drm")
+    except OSError:
+        return None
+    for entry in entries:
+        # "card0-DP-1", "card1-HDMI-A-1", etc.
+        if not re.match(r"^card\d+-", entry):
+            continue
+        for sub in ("ddc", "i2c-adapter"):
+            path = f"/sys/class/drm/{entry}/{sub}"
+            try:
+                target = os.readlink(path)
+            except OSError:
+                # Some drivers expose a directory of symlinks to i2c-N
+                try:
+                    inner = os.listdir(path)
+                except OSError:
+                    continue
+                for name in inner:
+                    m = re.match(r"^i2c-(\d+)$", name)
+                    if m and int(m.group(1)) == bus:
+                        return entry.split("-", 1)[1]
+                continue
+            m = re.search(r"i2c-(\d+)", target)
+            if m and int(m.group(1)) == bus:
+                return entry.split("-", 1)[1]
+    return None
+
+
+def _xrandr_outputs() -> dict[str, int]:
+    """Parse `xrandr --verbose` for connected outputs and their CRTC indices.
+    Returns {output_name: crtc_index}. Empty dict if xrandr unavailable."""
+    try:
+        result = subprocess.run(
+            ["xrandr", "--verbose"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return {}
+    if result.returncode != 0:
+        return {}
+
+    outputs: dict[str, int] = {}
+    current = None
+    for line in result.stdout.splitlines():
+        m = re.match(r"^(\S+)\s+connected\b", line)
+        if m:
+            current = m.group(1)
+            continue
+        if re.match(r"^\S", line):
+            current = None
+            continue
+        if current is None:
+            continue
+        m = re.match(r"^\s*CRTC:\s*(\d+)", line)
+        if m:
+            outputs[current] = int(m.group(1))
+            current = None
+    return outputs
+
+
+def _match_xrandr_name(connector: str, xrandr_names: list[str]) -> str | None:
+    """Match a DRM connector name against xrandr output names, accounting for
+    the slight naming differences (e.g. 'HDMI-A-1' vs 'HDMI-1')."""
+    if not connector:
+        return None
+    if connector in xrandr_names:
+        return connector
+    # HDMI-A-1 -> HDMI-1, DVI-D-1 -> DVI-1, DP-1 stays DP-1
+    stripped = re.sub(r"-[A-Z]-(\d+)$", r"-\1", connector)
+    if stripped in xrandr_names:
+        return stripped
+    # Also try lowercase prefix variants ("displayport-1" etc.)
+    low = connector.lower()
+    for name in xrandr_names:
+        if name.lower() == low:
+            return name
+    return None
+
+
+def resolve_output_for_bus(bus: int) -> tuple[str | None, int | None]:
+    """Return (output_name, crtc_index) for a given I2C bus, or (None, None)
+    if mapping fails (Wayland, no xrandr, headless, etc.)."""
+    connector = _get_drm_connector_for_bus(bus)
+    if connector is None:
+        return None, None
+    outs = _xrandr_outputs()
+    if not outs:
+        # We at least know the kernel-side connector name; redshift can't use
+        # it directly without a CRTC, so caller will fall back to global.
+        return connector, None
+    matched = _match_xrandr_name(connector, list(outs.keys()))
+    if matched is None:
+        return connector, None
+    return matched, outs[matched]
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +508,7 @@ def load_state() -> list[dict] | None:
 
 def save_state(monitors: list[MonitorInfo], values: dict[int, dict]):
     """Save monitor list and current values to state cache.
-    values = {bus: {"brightness": int, "contrast": int}}
+    values = {bus: {"brightness": int, "contrast": int, "color_temp": int}}
     """
     data = {
         "timestamp": time.time(),
@@ -398,8 +516,10 @@ def save_state(monitors: list[MonitorInfo], values: dict[int, dict]):
             {
                 "bus": m.bus,
                 "name": m.name,
+                "output_name": m.output_name,
                 "brightness": values.get(m.bus, {}).get("brightness", 50),
                 "contrast": values.get(m.bus, {}).get("contrast", 50),
+                "color_temp": values.get(m.bus, {}).get("color_temp", COLOR_TEMP_NEUTRAL),
             }
             for m in monitors
         ],
@@ -473,27 +593,37 @@ def build_monitors(detected: list[tuple[int, str]], vcp_brightness: int,
     monitors = []
     for bus, name in detected:
         device = f"/dev/i2c-{bus}"
+        output_name, crtc_index = resolve_output_for_bus(bus)
         label = f" ({name})" if name else ""
-        print(f"[{APP_NAME}] Found: bus {bus} {device}{label}", file=sys.stderr)
+        out_label = f" → {output_name}[crtc={crtc_index}]" if output_name else ""
+        print(f"[{APP_NAME}] Found: bus {bus} {device}{label}{out_label}", file=sys.stderr)
         monitors.append(MonitorInfo(
             bus=bus, device=device, name=name,
             brightness=DDCController(bus, vcp_brightness),
             contrast=DDCController(bus, vcp_contrast),
+            output_name=output_name, crtc_index=crtc_index,
         ))
     return monitors
 
 
 def build_monitors_from_cache(cached: list[dict], vcp_brightness: int,
                               vcp_contrast: int) -> list[MonitorInfo]:
-    """Build MonitorInfo list from cached state data."""
+    """Build MonitorInfo list from cached state data.
+    Re-resolves output_name/crtc_index at runtime since the X session may
+    differ from when the cache was written."""
     monitors = []
     for entry in cached:
         bus = entry["bus"]
         name = entry.get("name", "")
+        output_name, crtc_index = resolve_output_for_bus(bus)
+        if output_name is None:
+            # Fall back to last-known name from cache (CRTC stays None)
+            output_name = entry.get("output_name")
         monitors.append(MonitorInfo(
             bus=bus, device=f"/dev/i2c-{bus}", name=name,
             brightness=DDCController(bus, vcp_brightness),
             contrast=DDCController(bus, vcp_contrast),
+            output_name=output_name, crtc_index=crtc_index,
         ))
     return monitors
 
@@ -577,17 +707,24 @@ class DDCController:
 # ---------------------------------------------------------------------------
 
 class _SliderGroup:
-    """A pair of brightness/contrast sliders for one monitor (or master)."""
+    """Brightness, contrast and (optional) color-temperature sliders for one
+    monitor or for the master/all-monitors row."""
 
     def __init__(self, vbox, monitor: MonitorInfo | None, min_val, max_val, step,
-                 on_brightness, on_contrast, show_presets=False):
+                 on_brightness, on_contrast, show_presets=False,
+                 on_color_temp=None):
         self.monitor = monitor
         self.is_applying_brightness = False
         self.is_applying_contrast = False
+        self.is_applying_color_temp = False
         self._brightness_debounce = None
         self._contrast_debounce = None
+        self._color_temp_debounce = None
         self._on_brightness = on_brightness
         self._on_contrast = on_contrast
+        self._on_color_temp = on_color_temp
+        self.color_temp_scale = None
+        self.color_temp_label = None
 
         # --- Brightness ---
         title = Gtk.Label()
@@ -648,6 +785,45 @@ class _SliderGroup:
         self.contrast_label.set_width_chars(5)
         contrast_hbox.pack_start(self.contrast_label, False, False, 0)
 
+        # --- Color temperature (optional) ---
+        if on_color_temp is not None:
+            vbox.pack_start(Gtk.Separator(), False, False, 0)
+            ct_title = Gtk.Label()
+            ct_title.set_markup(f"<b>{_('color_temp')}</b>")
+            vbox.pack_start(ct_title, False, False, 0)
+            vbox.pack_start(Gtk.Separator(), False, False, 0)
+
+            ct_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            vbox.pack_start(ct_hbox, True, True, 0)
+
+            ct_adj = Gtk.Adjustment(value=COLOR_TEMP_NEUTRAL,
+                                    lower=COLOR_TEMP_MIN, upper=COLOR_TEMP_MAX,
+                                    step_increment=COLOR_TEMP_STEP,
+                                    page_increment=COLOR_TEMP_STEP * 5,
+                                    page_size=0)
+            self.color_temp_scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL,
+                                              adjustment=ct_adj)
+            self.color_temp_scale.set_digits(0)
+            self.color_temp_scale.set_draw_value(False)
+            self.color_temp_scale.set_size_request(200, -1)
+            for tick in COLOR_TEMP_MARKS:
+                self.color_temp_scale.add_mark(tick, Gtk.PositionType.BOTTOM, None)
+            self.color_temp_scale.connect("value-changed", self._on_color_temp_changed)
+            ct_hbox.pack_start(self.color_temp_scale, True, True, 0)
+
+            self.color_temp_label = Gtk.Label(label=f"{COLOR_TEMP_NEUTRAL}K")
+            self.color_temp_label.set_width_chars(6)
+            ct_hbox.pack_start(self.color_temp_label, False, False, 0)
+
+            if show_presets:
+                ct_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                ct_btn_box.set_homogeneous(True)
+                vbox.pack_start(ct_btn_box, False, False, 0)
+                for temp in COLOR_TEMP_MARKS:
+                    btn = Gtk.Button(label=f"{temp}K")
+                    btn.connect("clicked", self._on_color_temp_preset_clicked, temp)
+                    ct_btn_box.pack_start(btn, True, True, 0)
+
     def refresh(self):
         """Read actual hardware values (blocking — use from background thread)."""
         if self.monitor is None:
@@ -706,6 +882,34 @@ class _SliderGroup:
         self.is_applying_brightness = False
         self._on_brightness(self, value)
 
+    def set_color_temp(self, value):
+        if self.color_temp_scale is None:
+            return
+        self.is_applying_color_temp = True
+        self.color_temp_scale.set_value(value)
+        self.color_temp_label.set_text(f"{int(value)}K")
+        self.is_applying_color_temp = False
+
+    def _on_color_temp_changed(self, scale):
+        if self.is_applying_color_temp:
+            return
+        value = int(scale.get_value())
+        self.color_temp_label.set_text(f"{value}K")
+        if self._color_temp_debounce:
+            GLib.source_remove(self._color_temp_debounce)
+        self._color_temp_debounce = GLib.timeout_add(300, self._apply_color_temp, value)
+
+    def _apply_color_temp(self, value):
+        self._color_temp_debounce = None
+        if self._on_color_temp:
+            self._on_color_temp(self, value)
+        return False
+
+    def _on_color_temp_preset_clicked(self, button, value):
+        self.set_color_temp(value)
+        if self._on_color_temp:
+            self._on_color_temp(self, value)
+
 
 # ---------------------------------------------------------------------------
 #  Brightness popup (for tray icon mode)
@@ -713,19 +917,12 @@ class _SliderGroup:
 
 class BrightnessPopup(Gtk.Window):
 
-    COLOR_TEMP_PRESETS = [
-        (3000, "3000K"),
-        (4000, "4000K"),
-        (5500, "5500K"),
-        (6500, "6500K"),
-    ]
-
     def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
                  on_color_temp=None, on_value_changed=None):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
 
         self.monitors = monitors
-        self._on_color_temp = on_color_temp
+        self._on_color_temp = on_color_temp   # per-monitor apply callback (monitor, temp)
         self._on_value_changed = on_value_changed
         self._visible = False
         self._position = (0, 0)
@@ -755,6 +952,9 @@ class BrightnessPopup(Gtk.Window):
 
         multi = len(monitors) > 1
 
+        ct_master_cb = self._on_master_color_temp if on_color_temp else None
+        ct_per_mon_cb = self._on_monitor_color_temp if on_color_temp else None
+
         if multi:
             header = Gtk.Label()
             header.set_markup(f"<b>{_('all_monitors')}</b>")
@@ -765,13 +965,17 @@ class BrightnessPopup(Gtk.Window):
                 master_box, None, min_val, max_val, step,
                 on_brightness=self._on_master_brightness,
                 on_contrast=self._on_master_contrast,
-                show_presets=True)
+                show_presets=True,
+                on_color_temp=ct_master_cb)
 
         for mon in monitors:
             if multi:
                 vbox.pack_start(Gtk.Separator(), False, False, 4)
+                header_text = mon.name or mon.device
+                if mon.output_name:
+                    header_text = f"{header_text} — {mon.output_name}"
                 header = Gtk.Label()
-                header.set_markup(f"<b>▪ {GLib.markup_escape_text(mon.name or mon.device)}</b>")
+                header.set_markup(f"<b>▪ {GLib.markup_escape_text(header_text)}</b>")
                 vbox.pack_start(header, False, False, 0)
 
             mon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -780,21 +984,9 @@ class BrightnessPopup(Gtk.Window):
                 mon_box, mon, min_val, max_val, step,
                 on_brightness=self._on_monitor_brightness,
                 on_contrast=self._on_monitor_contrast,
-                show_presets=not multi)
+                show_presets=not multi,
+                on_color_temp=ct_per_mon_cb)
             self._monitor_groups.append(group)
-
-        if on_color_temp is not None:
-            vbox.pack_start(Gtk.Separator(), False, False, 0)
-            temp_title = Gtk.Label()
-            temp_title.set_markup(f"<b>{_('color_temp')}</b>")
-            vbox.pack_start(temp_title, False, False, 0)
-            temp_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            temp_box.set_homogeneous(True)
-            for temp, label in self.COLOR_TEMP_PRESETS:
-                btn = Gtk.Button(label=label)
-                btn.connect("clicked", self._on_temp_clicked, temp)
-                temp_box.pack_start(btn, True, True, 0)
-            vbox.pack_start(temp_box, False, False, 0)
 
         css = Gtk.CssProvider()
         css.load_from_data(b"""
@@ -817,9 +1009,18 @@ class BrightnessPopup(Gtk.Window):
         if self._on_value_changed:
             self._on_value_changed()
 
-    def _on_temp_clicked(self, button, temp: int):
+    def _on_monitor_color_temp(self, group: _SliderGroup, value: int):
+        if self._on_color_temp and group.monitor is not None:
+            self._on_color_temp(group.monitor, value)
+        self._notify_changed()
+
+    def _on_master_color_temp(self, group: _SliderGroup, value: int):
+        for mg in self._monitor_groups:
+            mg.set_color_temp(value)
         if self._on_color_temp:
-            self._on_color_temp(temp)
+            for mg in self._monitor_groups:
+                self._on_color_temp(mg.monitor, value)
+        self._notify_changed()
 
     def _on_monitor_brightness(self, group: _SliderGroup, value: int):
         threading.Thread(target=group.monitor.brightness.set_value, args=(value,), daemon=True).start()
@@ -876,12 +1077,17 @@ class BrightnessPopup(Gtk.Window):
                     group.set_brightness(b)
                 if c is not None:
                     group.set_contrast(c)
+        self._sync_master()
+        self._notify_changed()
+        return False
+
+    def _sync_master(self):
         if self._master_group and self._monitor_groups:
             first = self._monitor_groups[0]
             self._master_group.set_brightness(int(first.brightness_scale.get_value()))
             self._master_group.set_contrast(int(first.contrast_scale.get_value()))
-        self._notify_changed()
-        return False
+            if first.color_temp_scale is not None and self._master_group.color_temp_scale is not None:
+                self._master_group.set_color_temp(int(first.color_temp_scale.get_value()))
 
     def apply_cached_values(self, cached: list[dict]):
         """Set slider positions from cached state (no hardware read)."""
@@ -891,19 +1097,21 @@ class BrightnessPopup(Gtk.Window):
             if entry:
                 group.set_brightness(entry.get("brightness", 50))
                 group.set_contrast(entry.get("contrast", 50))
-        if self._master_group and self._monitor_groups:
-            first = self._monitor_groups[0]
-            self._master_group.set_brightness(int(first.brightness_scale.get_value()))
-            self._master_group.set_contrast(int(first.contrast_scale.get_value()))
+                group.set_color_temp(entry.get("color_temp", COLOR_TEMP_NEUTRAL))
+        self._sync_master()
 
-    def update_all(self, brightness: int, contrast: int):
+    def update_all(self, brightness: int, contrast: int, color_temp: int | None = None):
         """Update all sliders to given values."""
         for group in self._monitor_groups:
             group.set_brightness(brightness)
             group.set_contrast(contrast)
+            if color_temp is not None:
+                group.set_color_temp(color_temp)
         if self._master_group:
             self._master_group.set_brightness(brightness)
             self._master_group.set_contrast(contrast)
+            if color_temp is not None:
+                self._master_group.set_color_temp(color_temp)
 
     def update_value(self, value):
         """Update all monitor brightness sliders (used by scroll)."""
@@ -1001,6 +1209,7 @@ class TrayApp:
         # Apply cached slider values if available
         if cached_state:
             self.popup.apply_cached_values(cached_state)
+            self._restore_color_temps(cached_state)
 
         self.status_icon = None
         self.indicator = None
@@ -1027,11 +1236,33 @@ class TrayApp:
         values = {}
         for group in self.popup._monitor_groups:
             mon = group.monitor
-            values[mon.bus] = {
+            entry = {
                 "brightness": int(group.brightness_scale.get_value()),
                 "contrast": int(group.contrast_scale.get_value()),
             }
+            if group.color_temp_scale is not None:
+                entry["color_temp"] = int(group.color_temp_scale.get_value())
+            values[mon.bus] = entry
         save_state(self.monitors, values)
+
+    def _restore_color_temps(self, cached_state: list[dict]):
+        """Re-apply cached color temperatures to each monitor's CRTC.
+        Redshift gamma resets every X session, so we reapply on launch."""
+        cache_map = {entry["bus"]: entry for entry in cached_state}
+        targets = []
+        for mon in self.monitors:
+            entry = cache_map.get(mon.bus)
+            if not entry:
+                continue
+            ct = entry.get("color_temp")
+            if ct and ct != COLOR_TEMP_NEUTRAL:
+                targets.append((mon, ct))
+        if not targets:
+            return
+        def _do():
+            for mon, ct in targets:
+                self._apply_color_temp_for_monitor(mon, ct)
+        threading.Thread(target=_do, daemon=True).start()
 
     def _setup_status_icon(self, tooltip: str) -> bool:
         try:
@@ -1077,31 +1308,73 @@ class TrayApp:
             self.popup.toggle_at(x - 140, y + 10)
 
     @staticmethod
-    def _apply_redshift(temp: int):
-        """Apply color temperature via redshift one-shot."""
+    def _apply_redshift_global(temp: int):
+        """Fallback: apply color temperature via redshift to the whole X session."""
         try:
             subprocess.Popen(
                 ["redshift", "-P", "-O", str(temp)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
             print(f"[{APP_NAME}] redshift not found, skipping color_temp", file=sys.stderr)
 
-    def _on_color_temp(self, temp: int):
-        self._apply_redshift(temp)
+    @staticmethod
+    def _apply_color_temp_for_monitor(monitor: MonitorInfo, temp: int) -> bool:
+        """Apply color temperature to a single monitor via redshift's randr
+        backend, scoped to the monitor's CRTC. Returns True on success."""
+        if monitor.crtc_index is None:
+            return False
+        try:
+            result = subprocess.run(
+                ["redshift", "-m", f"randr:crtc={monitor.crtc_index}",
+                 "-P", "-O", str(temp)],
+                capture_output=True, text=True, timeout=5,
+            )
+        except FileNotFoundError:
+            print(f"[{APP_NAME}] redshift not found, falling back to global",
+                  file=sys.stderr)
+            return False
+        except subprocess.TimeoutExpired:
+            print(f"[{APP_NAME}] redshift timed out on {monitor.output_name}",
+                  file=sys.stderr)
+            return False
+        if result.returncode != 0:
+            print(f"[{APP_NAME}] redshift failed on crtc={monitor.crtc_index} "
+                  f"({monitor.output_name}): {result.stderr.strip()}",
+                  file=sys.stderr)
+            return False
+        return True
+
+    def _on_color_temp(self, monitor: MonitorInfo, temp: int):
+        """Per-monitor color-temp callback from the popup sliders."""
+        def _do():
+            ok = self._apply_color_temp_for_monitor(monitor, temp)
+            if not ok:
+                # Fallback: only viable when there's a single monitor (or if
+                # we genuinely can't resolve any output). Otherwise it would
+                # tint every monitor and defeat the per-monitor intent.
+                if len(self.monitors) == 1 or all(m.crtc_index is None for m in self.monitors):
+                    self._apply_redshift_global(temp)
+        threading.Thread(target=_do, daemon=True).start()
 
     def _on_apply_preset(self, widget, preset_index):
         """Apply a preset immediately."""
         if preset_index >= len(self.presets):
             return
         preset = self.presets[preset_index]
-        self.popup.update_all(preset["brightness"], preset["contrast"])
-        if preset.get("color_temp"):
-            self._apply_redshift(preset["color_temp"])
+        ct = preset.get("color_temp")
+        self.popup.update_all(preset["brightness"], preset["contrast"], ct)
         def _do():
             for mon in self.monitors:
                 mon.brightness.set_value(preset["brightness"])
                 mon.contrast.set_value(preset["contrast"])
+            if ct:
+                applied_per_monitor = False
+                for mon in self.monitors:
+                    if self._apply_color_temp_for_monitor(mon, ct):
+                        applied_per_monitor = True
+                if not applied_per_monitor:
+                    self._apply_redshift_global(ct)
             GLib.idle_add(self._save_current_state)
         threading.Thread(target=_do, daemon=True).start()
 
@@ -1363,13 +1636,17 @@ class StandaloneWindow(Gtk.Window):
                 master_box, None, min_val, max_val, step,
                 on_brightness=self._on_master_brightness,
                 on_contrast=self._on_master_contrast,
-                show_presets=True)
+                show_presets=True,
+                on_color_temp=self._on_master_color_temp)
 
         for mon in monitors:
             if multi:
                 vbox.pack_start(Gtk.Separator(), False, False, 4)
+                header_text = mon.name or mon.device
+                if mon.output_name:
+                    header_text = f"{header_text} — {mon.output_name}"
                 header = Gtk.Label()
-                header.set_markup(f"<b>▪ {GLib.markup_escape_text(mon.name or mon.device)}</b>")
+                header.set_markup(f"<b>▪ {GLib.markup_escape_text(header_text)}</b>")
                 vbox.pack_start(header, False, False, 0)
 
             mon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -1378,13 +1655,33 @@ class StandaloneWindow(Gtk.Window):
                 mon_box, mon, min_val, max_val, step,
                 on_brightness=self._on_monitor_brightness,
                 on_contrast=self._on_monitor_contrast,
-                show_presets=not multi)
+                show_presets=not multi,
+                on_color_temp=self._on_monitor_color_temp)
             self._monitor_groups.append(group)
 
         # Apply cached values first (instant), then refresh from hardware in background
         if cached_state:
             self._apply_cached(cached_state)
+            self._restore_color_temps(cached_state)
         self._refresh_async()
+
+    def _restore_color_temps(self, cached_state: list[dict]):
+        """Re-apply cached color temperatures (X gamma resets per session)."""
+        cache_map = {entry["bus"]: entry for entry in cached_state}
+        targets = []
+        for mon in self.monitors:
+            entry = cache_map.get(mon.bus)
+            if not entry:
+                continue
+            ct = entry.get("color_temp")
+            if ct and ct != COLOR_TEMP_NEUTRAL:
+                targets.append((mon, ct))
+        if not targets:
+            return
+        def _do():
+            for mon, ct in targets:
+                TrayApp._apply_color_temp_for_monitor(mon, ct)
+        threading.Thread(target=_do, daemon=True).start()
 
     def _apply_cached(self, cached: list[dict]):
         """Set slider positions from cache (no hardware read)."""
@@ -1394,10 +1691,8 @@ class StandaloneWindow(Gtk.Window):
             if entry:
                 group.set_brightness(entry.get("brightness", 50))
                 group.set_contrast(entry.get("contrast", 50))
-        if self._master_group and self._monitor_groups:
-            first = self._monitor_groups[0]
-            self._master_group.set_brightness(int(first.brightness_scale.get_value()))
-            self._master_group.set_contrast(int(first.contrast_scale.get_value()))
+                group.set_color_temp(entry.get("color_temp", COLOR_TEMP_NEUTRAL))
+        self._sync_master()
 
     def _refresh_async(self):
         """Non-blocking hardware refresh in background thread."""
@@ -1431,6 +1726,8 @@ class StandaloneWindow(Gtk.Window):
             first = self._monitor_groups[0]
             self._master_group.set_brightness(int(first.brightness_scale.get_value()))
             self._master_group.set_contrast(int(first.contrast_scale.get_value()))
+            if first.color_temp_scale is not None and self._master_group.color_temp_scale is not None:
+                self._master_group.set_color_temp(int(first.color_temp_scale.get_value()))
 
     def _on_monitor_brightness(self, group: _SliderGroup, value: int):
         print(f"[{APP_NAME}] Setting brightness={value} on bus {group.monitor.bus}", file=sys.stderr)
@@ -1462,15 +1759,39 @@ class StandaloneWindow(Gtk.Window):
         threading.Thread(target=_do, daemon=True).start()
         self._save_current_state()
 
+    def _on_monitor_color_temp(self, group: _SliderGroup, value: int):
+        print(f"[{APP_NAME}] Setting color_temp={value}K on bus {group.monitor.bus}",
+              file=sys.stderr)
+        threading.Thread(target=TrayApp._apply_color_temp_for_monitor,
+                         args=(group.monitor, value), daemon=True).start()
+        self._save_current_state()
+
+    def _on_master_color_temp(self, group: _SliderGroup, value: int):
+        print(f"[{APP_NAME}] Setting master color_temp={value}K", file=sys.stderr)
+        for mg in self._monitor_groups:
+            mg.set_color_temp(value)
+        def _do():
+            applied = False
+            for mg in self._monitor_groups:
+                if TrayApp._apply_color_temp_for_monitor(mg.monitor, value):
+                    applied = True
+            if not applied:
+                TrayApp._apply_redshift_global(value)
+        threading.Thread(target=_do, daemon=True).start()
+        self._save_current_state()
+
     def _save_current_state(self):
         """Collect current slider values and write state cache."""
         values = {}
         for group in self._monitor_groups:
             mon = group.monitor
-            values[mon.bus] = {
+            entry = {
                 "brightness": int(group.brightness_scale.get_value()),
                 "contrast": int(group.contrast_scale.get_value()),
             }
+            if group.color_temp_scale is not None:
+                entry["color_temp"] = int(group.color_temp_scale.get_value())
+            values[mon.bus] = entry
         save_state(self.monitors, values)
 
 
