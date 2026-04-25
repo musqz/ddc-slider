@@ -17,7 +17,7 @@ Works with any desktop environment or window manager that has a system tray (tin
 - **Tray icon** — left-click opens popup, scroll wheel adjusts brightness, right-click for presets, refresh, redshift toggle
 - **Refresh monitors** — re-detect monitor hardware and clear state cache from right-click menu
 - **Standalone mode** — floating window as an alternative to the tray (`--standalone`)
-- **Color temperature** — preset buttons (3000K–6500K) via redshift
+- **Color temperature** — per-monitor slider (3000K–6500K) via redshift's randr backend, scoped to each monitor's CRTC; falls back to a global redshift call when the I2C bus → randr output mapping isn't resolvable
 - **Configurable presets** — define brightness/contrast/color_temp combos in a JSON config
 - **Light & dark icons** — embedded SVG tray icons with auto-detection or manual override (`--icon light|dark`)
 - **Lightweight** — single Python file, no build step, no pip packages
