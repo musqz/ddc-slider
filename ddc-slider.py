@@ -269,6 +269,7 @@ DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_CONFIG_DIR, "config.json")
 DEFAULT_STATE_PATH = os.path.join(DEFAULT_CONFIG_DIR, "state.json")
 DEFAULT_CONFIG = {
     "scroll_step": 2,
+    "tint_sections": True,
     "presets": [
         {"name": "Movie", "brightness": 30, "contrast": 60, "color_temp": 3500},
         {"name": "Reading", "brightness": 80, "contrast": 40, "color_temp": 5500},
@@ -376,6 +377,64 @@ COLOR_TEMP_MAX = 6500
 COLOR_TEMP_NEUTRAL = 6500     # daylight, no tint
 COLOR_TEMP_STEP = 100
 COLOR_TEMP_MARKS = (3000, 4000, 5500, 6500)
+
+
+# ---------------------------------------------------------------------------
+#  Per-monitor section tinting (multi-monitor visual disambiguation)
+# ---------------------------------------------------------------------------
+
+# A small fixed palette cycled by monitor index. Chosen to be distinguishable
+# at low alpha on both light and dark GTK themes, and to remain readable when
+# used as the bullet/header accent color.
+SECTION_TINT_PALETTE = (
+    (53, 132, 228),    # blue
+    (46, 194, 126),    # green
+    (229, 165, 10),    # amber
+    (145, 65, 172),    # purple
+    (224, 27, 36),     # red
+    (26, 139, 141),    # teal
+)
+SECTION_TINT_BG_ALPHA = 0.08      # background fill — kept very subtle
+SECTION_TINT_STRIPE_ALPHA = 0.55  # left-edge accent stripe
+SECTION_TINT_CSS_INSTALLED = False
+
+
+def section_tint_class(index: int) -> str:
+    return f"monitor-section-{index % len(SECTION_TINT_PALETTE)}"
+
+
+def section_tint_color_hex(index: int) -> str:
+    r, g, b = SECTION_TINT_PALETTE[index % len(SECTION_TINT_PALETTE)]
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def install_section_tint_css():
+    """Install the per-monitor-section tint CSS at screen scope. Idempotent
+    — safe to call from both the popup and the standalone window."""
+    global SECTION_TINT_CSS_INSTALLED
+    if SECTION_TINT_CSS_INSTALLED:
+        return
+    rules = []
+    for i, (r, g, b) in enumerate(SECTION_TINT_PALETTE):
+        rules.append(
+            f"box.monitor-section-{i} {{"
+            f" background-color: rgba({r}, {g}, {b}, {SECTION_TINT_BG_ALPHA});"
+            f" border-left: 3px solid rgba({r}, {g}, {b}, {SECTION_TINT_STRIPE_ALPHA});"
+            f" border-radius: 4px;"
+            f" padding: 4px 6px 6px 8px;"
+            f" }}"
+        )
+    css = "\n".join(rules).encode("utf-8")
+    provider = Gtk.CssProvider()
+    try:
+        provider.load_from_data(css)
+    except Exception as e:
+        print(f"[{APP_NAME}] section-tint CSS load failed: {e}", file=sys.stderr)
+        return
+    Gtk.StyleContext.add_provider_for_screen(
+        Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
+    SECTION_TINT_CSS_INSTALLED = True
 
 
 # ---------------------------------------------------------------------------
@@ -918,12 +977,13 @@ class _SliderGroup:
 class BrightnessPopup(Gtk.Window):
 
     def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
-                 on_color_temp=None, on_value_changed=None):
+                 on_color_temp=None, on_value_changed=None, tint_sections: bool = True):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
 
         self.monitors = monitors
         self._on_color_temp = on_color_temp   # per-monitor apply callback (monitor, temp)
         self._on_value_changed = on_value_changed
+        self._tint_sections = tint_sections
         self._visible = False
         self._position = (0, 0)
         self._monitor_groups: list[_SliderGroup] = []
@@ -968,18 +1028,38 @@ class BrightnessPopup(Gtk.Window):
                 show_presets=True,
                 on_color_temp=ct_master_cb)
 
-        for mon in monitors:
+        if multi and tint_sections:
+            install_section_tint_css()
+
+        for i, mon in enumerate(monitors):
             if multi:
-                vbox.pack_start(Gtk.Separator(), False, False, 4)
+                section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+                if tint_sections:
+                    section.get_style_context().add_class(section_tint_class(i))
+                else:
+                    vbox.pack_start(Gtk.Separator(), False, False, 4)
+                vbox.pack_start(section, False, False, 0)
+
                 header_text = mon.name or mon.device
                 if mon.output_name:
                     header_text = f"{header_text} — {mon.output_name}"
                 header = Gtk.Label()
-                header.set_markup(f"<b>▪ {GLib.markup_escape_text(header_text)}</b>")
-                vbox.pack_start(header, False, False, 0)
+                header.set_xalign(0)
+                if tint_sections:
+                    bullet = section_tint_color_hex(i)
+                    header.set_markup(
+                        f'<span color="{bullet}"><b>▪</b></span> '
+                        f'<b>{GLib.markup_escape_text(header_text)}</b>'
+                    )
+                else:
+                    header.set_markup(f"<b>▪ {GLib.markup_escape_text(header_text)}</b>")
+                section.pack_start(header, False, False, 0)
+                container = section
+            else:
+                container = vbox
 
             mon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            vbox.pack_start(mon_box, False, False, 0)
+            container.pack_start(mon_box, False, False, 0)
             group = _SliderGroup(
                 mon_box, mon, min_val, max_val, step,
                 on_brightness=self._on_monitor_brightness,
@@ -1170,6 +1250,7 @@ def load_config(path: str) -> dict:
         } for p in cfg.get("presets", [])]
         result = {
             "scroll_step": cfg.get("scroll_step", DEFAULT_SCROLL_STEP),
+            "tint_sections": bool(cfg.get("tint_sections", True)),
             "presets": presets,
         }
         if presets:
@@ -1189,7 +1270,7 @@ class TrayApp:
     def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
                  scroll_step: int = DEFAULT_SCROLL_STEP, presets: list | None = None,
                  cached_state: list[dict] | None = None, icon_style: str | None = None,
-                 original_cmd: str | None = None):
+                 original_cmd: str | None = None, tint_sections: bool = True):
         print(f"[{APP_NAME}] TrayApp init: sys.argv={sys.argv}", file=sys.stderr)
         print(f"[{APP_NAME}] TrayApp init: original_cmd={original_cmd}", file=sys.stderr)
         self.monitors = monitors
@@ -1200,7 +1281,8 @@ class TrayApp:
         self.original_cmd = original_cmd or sys.argv[0]
         self.popup = BrightnessPopup(monitors, min_val, max_val, step,
                                      on_color_temp=self._on_color_temp,
-                                     on_value_changed=self._save_current_state)
+                                     on_value_changed=self._save_current_state,
+                                     tint_sections=tint_sections)
         self._cached_brightness = None
         self._scroll_debounce_id = None
         self._redshift_paused = False
@@ -1608,11 +1690,12 @@ class TrayApp:
 class StandaloneWindow(Gtk.Window):
 
     def __init__(self, monitors: list[MonitorInfo], min_val: int, max_val: int, step: int,
-                 cached_state: list[dict] | None = None):
+                 cached_state: list[dict] | None = None, tint_sections: bool = True):
         super().__init__(title=_("window_title"))
         self.monitors = monitors
         self._monitor_groups: list[_SliderGroup] = []
         self._master_group: _SliderGroup | None = None
+        self._tint_sections = tint_sections
 
         self.set_default_size(350, 160)
         self.set_resizable(False)
@@ -1639,18 +1722,38 @@ class StandaloneWindow(Gtk.Window):
                 show_presets=True,
                 on_color_temp=self._on_master_color_temp)
 
-        for mon in monitors:
+        if multi and tint_sections:
+            install_section_tint_css()
+
+        for i, mon in enumerate(monitors):
             if multi:
-                vbox.pack_start(Gtk.Separator(), False, False, 4)
+                section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+                if tint_sections:
+                    section.get_style_context().add_class(section_tint_class(i))
+                else:
+                    vbox.pack_start(Gtk.Separator(), False, False, 4)
+                vbox.pack_start(section, False, False, 0)
+
                 header_text = mon.name or mon.device
                 if mon.output_name:
                     header_text = f"{header_text} — {mon.output_name}"
                 header = Gtk.Label()
-                header.set_markup(f"<b>▪ {GLib.markup_escape_text(header_text)}</b>")
-                vbox.pack_start(header, False, False, 0)
+                header.set_xalign(0)
+                if tint_sections:
+                    bullet = section_tint_color_hex(i)
+                    header.set_markup(
+                        f'<span color="{bullet}"><b>▪</b></span> '
+                        f'<b>{GLib.markup_escape_text(header_text)}</b>'
+                    )
+                else:
+                    header.set_markup(f"<b>▪ {GLib.markup_escape_text(header_text)}</b>")
+                section.pack_start(header, False, False, 0)
+                container = section
+            else:
+                container = vbox
 
             mon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            vbox.pack_start(mon_box, False, False, 0)
+            container.pack_start(mon_box, False, False, 0)
             group = _SliderGroup(
                 mon_box, mon, min_val, max_val, step,
                 on_brightness=self._on_monitor_brightness,
@@ -1847,6 +1950,9 @@ State:  {DEFAULT_STATE_PATH}
                         help="Disable config file loading")
     parser.add_argument("--no-cache", action="store_true",
                         help="Skip state cache, force hardware probe")
+    parser.add_argument("--no-tint", action="store_true",
+                        help="Disable per-monitor section tinting "
+                             "(overrides tint_sections in config)")
     parser.add_argument("--icon", choices=["light", "dark", "auto"], default="auto",
                         help="Tray icon color: light (white), dark (black), "
                              "auto = detect from GTK theme (default)")
@@ -1922,17 +2028,22 @@ State:  {DEFAULT_STATE_PATH}
 
     scroll_step = args.scroll_step if args.scroll_step is not None else config.get("scroll_step", DEFAULT_SCROLL_STEP)
     presets = config.get("presets", [])
+    tint_sections = config.get("tint_sections", True)
+    if args.no_tint:
+        tint_sections = False
 
     if args.standalone:
         win = StandaloneWindow(monitors, args.min, args.max, args.step,
-                               cached_state=cached_state)
+                               cached_state=cached_state,
+                               tint_sections=tint_sections)
         win.show_all()
     else:
         icon_style = None if args.icon == "auto" else args.icon
         app = TrayApp(monitors, args.min, args.max, args.step,
                       scroll_step=scroll_step, presets=presets,
                       cached_state=cached_state, icon_style=icon_style,
-                      original_cmd=sys.argv[0])
+                      original_cmd=sys.argv[0],
+                      tint_sections=tint_sections)
 
     Gtk.main()
 

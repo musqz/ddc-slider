@@ -63,6 +63,10 @@ Disable config file loading.
 .B \-\-no\-cache
 Skip the state cache and force a fresh hardware probe.
 .TP
+.B \-\-no\-tint
+Disable per-monitor section tinting in the popup and standalone window.
+Overrides the \fBtint_sections\fR config setting.
+.TP
 .B \-\-icon \fISTYLE\fR
 Tray icon color: \fBlight\fR (white icon), \fBdark\fR (black icon),
 or \fBauto\fR (detect from GTK theme, default). Icons are stored as
@@ -100,6 +104,7 @@ The config file at \fI~/.config/ddc-slider/config.json\fR supports:
 .nf
 {
   "scroll_step": 1,
+  "tint_sections": true,
   "presets": [
     {
       "name": "Movie",
@@ -118,6 +123,10 @@ The config file at \fI~/.config/ddc-slider/config.json\fR supports:
 The \fBmonitor_names\fR section maps I2C bus numbers to custom display names.
 Find bus numbers with \fBddcutil detect\fR. If not set, the EDID model name
 is used (e.g. "PHL 275E1").
+.PP
+\fBtint_sections\fR (default \fBtrue\fR) toggles the per-monitor background
+tint and colored left stripe in multi-monitor popups. Override at runtime
+with \fB\-\-no\-tint\fR.
 .PP
 Color-temperature presets and the per-monitor color-temp slider both
 require

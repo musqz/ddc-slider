@@ -5,6 +5,17 @@ All notable changes to ddc-slider are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Subtle per-monitor section tinting in multi-monitor popups: each monitor
+  gets a low-alpha background fill and a colored left-edge stripe cycled
+  from a 6-color palette (blue, green, amber, purple, red, teal). The
+  bullet in each section header is colored to match the stripe so the
+  link between header and slider block is unambiguous.
+- `tint_sections` config option (default `true`) and `--no-tint` CLI flag
+  to disable the tinting for users on heavily customized GTK themes.
+
 ## [1.1.0] - 2026-04-25
 
 ### Added

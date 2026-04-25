@@ -11,7 +11,7 @@ Works with any desktop environment or window manager that has a system tray (tin
 
 ## Features
 
-- **Per-monitor control** — individual brightness and contrast sliders for each DDC-capable monitor, plus a master slider for all at once
+- **Per-monitor control** — individual brightness and contrast sliders for each DDC-capable monitor, plus a master slider for all at once. In multi-monitor mode each section gets a subtle background tint and a colored left-stripe (cycling 6 accent colors) so sliders are easy to associate with the right display at a glance — disable with `tint_sections: false` or `--no-tint`
 - **Proper monitor names** — shows model names (e.g. "Dell P2414H") from EDID, not generic "VESA monitor"
 - **Instant startup** — state cache remembers monitors and last-used values; window appears immediately, hardware refresh runs in background
 - **Tray icon** — left-click opens popup, scroll wheel adjusts brightness, right-click for presets, refresh, redshift toggle
@@ -139,6 +139,7 @@ Config file: `~/.config/ddc-slider/config.json`
 ```json
 {
   "scroll_step": 2,
+  "tint_sections": true,
   "presets": [
     {
       "name": "Movie",
