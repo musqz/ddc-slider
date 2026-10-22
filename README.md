@@ -38,7 +38,7 @@ Works with any desktop environment or window manager that has a system tray (tin
 ### Quick install (recommended)
 
 ```bash
-git clone https://github.com/musduz/ddc-slider.git
+git clone https://codeberg.org/linux-bird/ddc-slider.git
 cd ddc-slider
 chmod +x install.sh
 ./install.sh
