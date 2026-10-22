@@ -1,8 +1,5 @@
 # ddc-slider 
 
-> Disclaimer: I changed the name to `ddc-slider` 
-> because the script uses `ddcutil` backend instead of `ddccontrol` _(not maintained anymore)_.
-
 GTK3 system tray applet that controls external monitor brightness and contrast via [DDC/CI](https://en.wikipedia.org/wiki/Display_Data_Channel) protocol.
 
 Works with any desktop environment or window manager that has a system tray (tint2, xfce4-panel, polybar, etc).
