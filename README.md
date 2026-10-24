@@ -1,10 +1,4 @@
-> **This repository has moved to Codeberg: https://codeberg.org/linux-bird/ddc-slider**
-> It is archived here. Please use Codeberg for issues and pull requests.
-
 # ddc-slider 
-
-> Disclaimer: I changed the name to `ddc-slider` 
-> because the script uses `ddcutil` backend instead of `ddccontrol` _(not maintained anymore)_.
 
 GTK3 system tray applet that controls external monitor brightness and contrast via [DDC/CI](https://en.wikipedia.org/wiki/Display_Data_Channel) protocol.
 
@@ -41,7 +35,7 @@ Works with any desktop environment or window manager that has a system tray (tin
 ### Quick install (recommended)
 
 ```bash
-git clone https://github.com/musduz/ddc-slider.git
+git clone https://codeberg.org/linux-bird/ddc-slider.git
 cd ddc-slider
 chmod +x install.sh
 ./install.sh
